@@ -1,0 +1,1 @@
+import { createAdminUser } from './setupAdmin.js'; createAdminUser('admin@oliverio.edu.mx', 'admin123', 'Administrador General').then(() => console.log('Admin user created')).catch(e => console.error(e));
