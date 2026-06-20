@@ -182,9 +182,9 @@ export default function TeacherDashboard() {
                 {students.map(s => {
                   const st = statuses[s.id];
                   return (
-                    <div key={s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 0',borderBottom:'1px solid var(--gris-100)'}}>
+                    <div key={s.id} className="attendance-row">
                       <div style={{fontWeight:600}}>{s.lastName} {s.name}</div>
-                      <div className="flex gap-2">
+                      <div className="attendance-actions">
                         {Object.entries(ESTADOS).map(([key, cfg]) => {
                           const Icon = cfg.icon;
                           const isActive = st === key;

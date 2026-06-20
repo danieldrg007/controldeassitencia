@@ -207,7 +207,7 @@ export default function Students() {
                   <input className="form-input" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} required />
                 </div>
               </div>
-              <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:16}}>
+              <div className="form-grid-auto">
                 <div className="form-group">
                   <label className="form-label">Plantel</label>
                   <select className="form-select" value={form.plantel} onChange={e => setForm({...form, plantel: e.target.value, nivel: '', grado: ''})} required>

@@ -539,7 +539,7 @@ export default function ParentDashboard() {
                   <input className="form-input" value={studentForm.lastName} onChange={e => setStudentForm({...studentForm, lastName: e.target.value})} required />
                 </div>
               </div>
-              <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:16}}>
+              <div className="form-grid-auto">
                 <div className="form-group">
                   <label className="form-label">Plantel</label>
                   <select className="form-select" value={studentForm.plantel} onChange={e => setStudentForm({...studentForm, plantel: e.target.value, nivel: '', grado: ''})} required>

@@ -269,3 +269,33 @@
   .stats-grid { grid-template-columns: 1fr; }
   .navbar-brand span { font-size: 1rem; }
 }
+
+/* ============================================================
+   Experiencia móvil: utilidades reutilizables
+   ============================================================ */
+
+/* Grid de formulario que colapsa en pantallas chicas (plantel/nivel/grado/grupo) */
+.form-grid-auto { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+@media (max-width: 900px) { .form-grid-auto { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .form-grid-auto { grid-template-columns: 1fr; } }
+
+/* Pestañas desplazables horizontalmente en móvil */
+.tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { white-space: nowrap; flex-shrink: 0; }
+
+/* Encabezados de página: que el título y el botón no se aprieten en móvil */
+.page-header.flex { flex-wrap: wrap; gap: 12px; }
+@media (max-width: 560px) {
+  .page-header.flex { flex-direction: column; align-items: stretch; }
+  .page-header.flex .btn { width: 100%; }
+}
+
+/* Filas de pase de lista (profesor) */
+.attendance-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--surface-border); }
+.attendance-actions { display: flex; gap: 8px; flex-shrink: 0; }
+@media (max-width: 600px) {
+  .attendance-row { flex-direction: column; align-items: stretch; }
+  .attendance-actions { width: 100%; }
+  .attendance-actions .btn { flex: 1; }
+}
