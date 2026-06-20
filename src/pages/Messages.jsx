@@ -90,6 +90,24 @@ export default function Messages() {
     return ROLE_LABEL[c.participantRoles?.[other]] || '';
   }, [uid]);
 
+  // ¿La conversación tiene mensajes sin leer para mí?
+  const isUnread = useCallback((c) => {
+    if (!c?.lastMessage || c.lastMessage.senderId === uid) return false;
+    const read = c.lastRead?.[uid];
+    return !read || c.lastMessage.createdAt > read;
+  }, [uid]);
+
+  const markRead = useCallback(async (convId, ts) => {
+    try { await updateDoc(doc(db, 'conversations', convId), { [`lastRead.${uid}`]: ts }); } catch { /* noop */ }
+  }, [uid]);
+
+  // Marca como leída la conversación abierta cuando llegan/cargan mensajes.
+  useEffect(() => {
+    if (!activeId || messages.length === 0) return;
+    const last = messages[messages.length - 1].createdAt;
+    if (active?.lastRead?.[uid] !== last) markRead(activeId, last);
+  }, [activeId, messages, active, uid, markRead]);
+
   // ---- Cargar contactos disponibles según rol ----
   const loadContacts = useCallback(async () => {
     setLoadingContacts(true);
@@ -235,7 +253,9 @@ export default function Messages() {
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {conversations.length === 0 ? (
                 <p style={{ padding: 20, color: 'var(--gris-500)', fontSize: '0.85rem', textAlign: 'center' }}>Aún no tienes conversaciones.</p>
-              ) : conversations.map(c => (
+              ) : conversations.map(c => {
+                const unread = isUnread(c);
+                return (
                 <button key={c.id} onClick={() => setActiveId(c.id)}
                   style={{
                     width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
@@ -246,13 +266,15 @@ export default function Messages() {
                     {c.type === 'group' ? <UsersIcon size={18} /> : <User size={18} />}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{convTitle(c)}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--gris-500)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontWeight: unread ? 800 : 600, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{convTitle(c)}</div>
+                    <div style={{ fontSize: '0.78rem', color: unread ? 'var(--text-main)' : 'var(--gris-500)', fontWeight: unread ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {c.lastMessage ? `${c.lastMessage.text}` : convSubtitle(c)}
                     </div>
                   </div>
+                  {unread && <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--brand)', flexShrink: 0 }} />}
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
 

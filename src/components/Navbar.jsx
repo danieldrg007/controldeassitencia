@@ -1,14 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X } from 'lucide-react';
 import logo from '../assets/logo.jpg';
 
 export default function Navbar() {
-  const { userData, logout } = useAuth();
+  const { user, userData, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
   const role = typeof userData?.role === 'string' ? userData.role.trim().toLowerCase() : '';
+  const hasChat = ['superadmin', 'admin', 'teacher', 'parent'].includes(role);
+
+  // Conteo de conversaciones con mensajes sin leer.
+  useEffect(() => {
+    if (!user?.uid || !hasChat) { setUnread(0); return; }
+    const q = query(collection(db, 'conversations'), where('participants', 'array-contains', user.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      let n = 0;
+      snap.forEach(d => {
+        const c = d.data();
+        if (c.lastMessage && c.lastMessage.senderId !== user.uid) {
+          const read = c.lastRead?.[user.uid];
+          if (!read || c.lastMessage.createdAt > read) n++;
+        }
+      });
+      setUnread(n);
+    }, () => {});
+    return unsub;
+  }, [user, hasChat]);
 
   const handleLogout = async () => {
     await logout();
@@ -56,7 +78,14 @@ export default function Navbar() {
           <NavLink to="/parent" className={linkClass}><UserCircle size={16} /> Mis Hijos</NavLink>
         )}
         {(isAdmin || isTeacher || role === 'parent') && (
-          <NavLink to="/messages" className={linkClass}><MessageCircle size={16} /> Mensajes</NavLink>
+          <NavLink to="/messages" className={linkClass}>
+            <MessageCircle size={16} /> Mensajes
+            {unread > 0 && (
+              <span style={{ background: 'var(--danger)', color: '#fff', fontSize: '0.7rem', fontWeight: 800, minWidth: 18, height: 18, borderRadius: 999, padding: '0 5px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </NavLink>
         )}
 
         {/* Usuario + salir dentro del menú colapsable en móvil */}
