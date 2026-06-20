@@ -193,6 +193,30 @@ service cloud.firestore {
       allow delete: if signedIn() && isAdmin();
     }
 
+    // ---------------- RECOGIDAS TEMPORALES ----------------
+    // Un padre autoriza a una persona (identificada por su pickupCode) a recoger a
+    // SU hijo en una fecha. SEGURIDAD: el create exige que quien autoriza sea
+    // realmente padre/tutor del alumno (su uid está en students.parentIds).
+    match /pickupAuthorizations/{authId} {
+      // canScan() PRIMERO (sin resource.data) para que el guardia pueda consultar
+      // por pickupCode (list). El padre puede ver/gestionar las suyas.
+      allow read: if signedIn() && (
+        canScan() ||
+        resource.data.authorizedByParentId == request.auth.uid
+      );
+      allow create: if signedIn() && isParent()
+        && request.resource.data.authorizedByParentId == request.auth.uid
+        && studentExists(request.resource.data.studentId)
+        && request.auth.uid in studentDoc(request.resource.data.studentId).parentIds;
+      allow update: if signedIn() && (
+        canScan() ||
+        resource.data.authorizedByParentId == request.auth.uid
+      );
+      allow delete: if signedIn() && (
+        isAdmin() || resource.data.authorizedByParentId == request.auth.uid
+      );
+    }
+
     // ---------------- CHAT / MENSAJES ----------------
     // Modelo unificado: cada conversación tiene un array participants[] de uids.
     // El acceso se controla por pertenencia a ese array. Quién puede iniciar una

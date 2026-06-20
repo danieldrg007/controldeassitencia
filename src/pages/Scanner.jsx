@@ -13,6 +13,8 @@ export default function Scanner() {
   const [pendingExit, setPendingExit] = useState(null); // { student, recordId }
   const [authorized, setAuthorized] = useState([]);
   const [loadingPeople, setLoadingPeople] = useState(false);
+  const [groupPickup, setGroupPickup] = useState(null); // { person, code, items }
+  const [groupLoading, setGroupLoading] = useState(false);
 
   const html5QrRef = useRef(null);
   const scanModeRef = useRef('student'); // 'student' | 'pass'
@@ -71,10 +73,94 @@ export default function Scanner() {
     await stopScanner();
     if (scanModeRef.current === 'pass') {
       handlePassScan(decodedText);
+    } else if (scanModeRef.current === 'pickupGroup') {
+      handleGroupCode(decodedText);
     } else {
       await processStudent(decodedText);
     }
   };
+
+  // ---- Recogida grupal con pase temporal ----
+  const handleGroupCode = async (code) => {
+    setGroupLoading(true);
+    setError('');
+    try {
+      const codeUp = (code || '').trim().toUpperCase();
+      const studentIds = new Set();
+      const authBy = {};
+      let personName = '';
+
+      // Autorizaciones temporales válidas hoy.
+      const aSnap = await getDocs(query(collection(db, 'pickupAuthorizations'), where('pickupCode', '==', codeUp)));
+      aSnap.forEach(d => {
+        const a = d.data();
+        if (a.validDate === today && a.status === 'active') {
+          studentIds.add(a.studentId);
+          authBy[a.studentId] = a.authorizedByName || 'Su tutor';
+          if (!personName) personName = a.pickupName || '';
+        }
+      });
+
+      // Si el código pertenece a un padre registrado, incluir a sus propios hijos.
+      const uSnap = await getDocs(query(collection(db, 'users'), where('pickupCode', '==', codeUp)));
+      if (!uSnap.empty) {
+        const owner = uSnap.docs[0];
+        if (!personName) personName = owner.data().displayName || 'Persona con pase';
+        const sSnap = await getDocs(query(collection(db, 'students'), where('parentIds', 'array-contains', owner.id)));
+        sSnap.forEach(d => { studentIds.add(d.id); if (!authBy[d.id]) authBy[d.id] = 'Titular'; });
+      }
+
+      if (studentIds.size === 0) {
+        setError('Ese código no tiene recogidas autorizadas para hoy.');
+        setGroupLoading(false);
+        return;
+      }
+
+      const items = [];
+      for (const sid of studentIds) {
+        const sDoc = await getDoc(doc(db, 'students', sid));
+        if (!sDoc.exists()) continue;
+        const student = { id: sDoc.id, ...sDoc.data() };
+        const rsnap = await getDocs(query(collection(db, 'attendance', today, 'records'), where('studentId', '==', sid)));
+        const rec = rsnap.empty ? null : { id: rsnap.docs[0].id, ...rsnap.docs[0].data() };
+        const inSchool = !!(rec && rec.entryTime && !rec.exitTime);
+        items.push({
+          student, recordId: rec?.id || null, authorizedBy: authBy[sid],
+          inSchool, alreadyOut: !!(rec && rec.exitTime), noEntry: !rec, checked: inSchool,
+        });
+      }
+      items.sort((a, b) => `${a.student.lastName}`.localeCompare(`${b.student.lastName}`));
+      setGroupPickup({ person: personName || 'Persona con pase', code: codeUp, items });
+    } catch (e) {
+      console.error(e);
+      setError('Error al leer el pase: ' + e.message);
+    }
+    setGroupLoading(false);
+  };
+
+  const toggleGroupItem = (sid) =>
+    setGroupPickup(g => ({ ...g, items: g.items.map(it => it.student.id === sid && it.inSchool ? { ...it, checked: !it.checked } : it) }));
+
+  const confirmGroupExit = async () => {
+    const chosen = groupPickup.items.filter(it => it.checked && it.inSchool && it.recordId);
+    if (chosen.length === 0) { setError('Selecciona al menos un alumno que esté en el colegio.'); return; }
+    setGroupLoading(true);
+    const now = new Date().toISOString();
+    try {
+      for (const it of chosen) {
+        await updateDoc(doc(db, 'attendance', today, 'records', it.recordId), {
+          exitTime: now, exitMethod: 'pase-temporal',
+          pickedUpById: groupPickup.code, pickedUpByName: groupPickup.person, pickedUpByRelation: 'Pase temporal',
+        });
+        await sendNotification(it.student, 'exit', now, { name: groupPickup.person, relation: 'Pase temporal' });
+      }
+      setResult({ type: 'group', count: chosen.length, person: groupPickup.person, time: now });
+      setGroupPickup(null);
+    } catch (e) { setError('Error al registrar salidas: ' + e.message); }
+    setGroupLoading(false);
+  };
+
+  const cancelGroup = () => { setGroupPickup(null); setError(''); };
 
   // Carga las personas autorizadas (grupo familiar de los padres + titulares).
   const loadAuthorized = async (student) => {
@@ -195,16 +281,27 @@ export default function Scanner() {
       </div>
 
       <div style={{maxWidth:520, margin:'0 auto'}}>
-        {!scanning && !result && !pendingExit && (
+        {!scanning && !result && !pendingExit && !groupPickup && (
           <div className="card" style={{textAlign:'center', padding:'48px 24px'}}>
             <div style={{width:100,height:100,borderRadius:'50%',background:'linear-gradient(135deg,var(--guinda),var(--guinda-dark))',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 24px'}}>
               <ScanLine size={48} color="#fff" />
             </div>
             <h2 style={{fontSize:'1.25rem',fontWeight:700,marginBottom:8}}>Listo para escanear</h2>
-            <p style={{color:'var(--gris-500)',marginBottom:24}}>Presiona el botón para activar la cámara y escanear el QR del alumno</p>
-            <button onClick={() => startScanner('student')} className="btn btn-primary btn-lg">
-              <Camera size={20} /> Iniciar Escáner
-            </button>
+            <p style={{color:'var(--gris-500)',marginBottom:24}}>Escanea el QR del alumno, o usa un pase de recogida para salidas en grupo</p>
+            <div className="flex flex-col gap-2" style={{maxWidth:300, margin:'0 auto'}}>
+              <button onClick={() => startScanner('student')} className="btn btn-primary btn-lg">
+                <Camera size={20} /> Escanear alumno
+              </button>
+              <button onClick={() => startScanner('pickupGroup')} className="btn btn-gold btn-lg" disabled={groupLoading}>
+                <IdCard size={20} /> Recogida con pase
+              </button>
+            </div>
+          </div>
+        )}
+
+        {groupLoading && !groupPickup && (
+          <div className="card" style={{textAlign:'center', padding:32}}>
+            <p style={{color:'var(--gris-500)'}}>Leyendo pase de recogida...</p>
           </div>
         )}
 
@@ -213,6 +310,11 @@ export default function Scanner() {
             {scanModeRef.current === 'pass' && (
               <div style={{padding:'12px 16px', background:'var(--info-bg)', color:'var(--info)', fontWeight:600, textAlign:'center'}}>
                 Escanea el pase de quien recoge
+              </div>
+            )}
+            {scanModeRef.current === 'pickupGroup' && (
+              <div style={{padding:'12px 16px', background:'var(--warning-bg)', color:'#8B6F2F', fontWeight:600, textAlign:'center'}}>
+                Escanea el código de recogida (QR)
               </div>
             )}
             <div id="qr-reader" style={{width:'100%'}}></div>
@@ -265,7 +367,50 @@ export default function Scanner() {
           </div>
         )}
 
-        {error && !pendingExit && (
+        {/* Recogida grupal: selección de alumnos autorizados por el pase */}
+        {groupPickup && (
+          <div className="card">
+            <div style={{textAlign:'center', marginBottom:16}}>
+              <IdCard size={40} color="var(--guinda)" style={{margin:'0 auto 8px'}} />
+              <h2 style={{fontSize:'1.25rem', fontWeight:800}}>Recogida de {groupPickup.person}</h2>
+              <p style={{color:'var(--gris-500)', fontSize:'0.85rem'}}>Pase <code style={{fontWeight:700, color:'var(--guinda)'}}>{groupPickup.code}</code> · selecciona a quién entregar</p>
+            </div>
+
+            {error && <p className="badge badge-danger" style={{display:'block', textAlign:'center', marginBottom:12, padding:8}}>{error}</p>}
+
+            <div className="flex flex-col gap-2">
+              {groupPickup.items.map(it => {
+                const s = it.student;
+                const estado = it.inSchool ? null : it.alreadyOut ? 'Ya salió' : 'Sin entrada hoy';
+                return (
+                  <button key={s.id} type="button" onClick={() => toggleGroupItem(s.id)} disabled={!it.inSchool}
+                    style={{
+                      display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, textAlign:'left',
+                      padding:12, borderRadius:'var(--radius-sm)', cursor: it.inSchool ? 'pointer' : 'not-allowed',
+                      border:`1.5px solid ${it.checked ? 'var(--guinda)' : 'var(--gris-200)'}`,
+                      background: it.checked ? 'rgba(155,36,62,0.06)' : (it.inSchool ? '#fff' : 'var(--gris-100)'),
+                      opacity: it.inSchool ? 1 : 0.6,
+                    }}>
+                    <div>
+                      <div style={{fontWeight:700}}>{it.inSchool ? (it.checked ? '☑ ' : '☐ ') : ''}{s.lastName} {s.name}</div>
+                      <div style={{fontSize:'0.78rem', color:'var(--gris-500)'}}>{s.grado} {s.nivel} {s.grupo} · autoriza: {it.authorizedBy}</div>
+                    </div>
+                    {estado && <span className="badge badge-warning">{estado}</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{display:'flex', gap:8, marginTop:16}}>
+              <button onClick={confirmGroupExit} className="btn btn-primary" style={{flex:1}} disabled={groupLoading}>
+                {groupLoading ? 'Registrando...' : `Registrar salida (${groupPickup.items.filter(i => i.checked && i.inSchool).length})`}
+              </button>
+              <button onClick={cancelGroup} className="btn btn-secondary" disabled={groupLoading}>Cancelar</button>
+            </div>
+          </div>
+        )}
+
+        {error && !pendingExit && !groupPickup && (
           <div className="card" style={{textAlign:'center', padding:32, marginTop:16}}>
             <XCircle size={48} color="var(--danger)" style={{margin:'0 auto 12px'}} />
             <p style={{color:'var(--danger)', fontWeight:600, marginBottom:16}}>{error}</p>
@@ -275,7 +420,22 @@ export default function Scanner() {
           </div>
         )}
 
-        {result && (
+        {result && result.type === 'group' && (
+          <div className="scan-result exit" style={{marginTop:16}}>
+            <LogOut size={56} color="var(--info)" style={{margin:'0 auto 12px'}} />
+            <h2 style={{fontSize:'1.5rem', fontWeight:800, marginBottom:4}}>🔵 {result.count} salida(s) registrada(s)</h2>
+            <p style={{fontSize:'1.1rem', fontWeight:600}}>Recogidos por {result.person}</p>
+            <p style={{color:'var(--gris-500)'}}>{formatTime(result.time)}</p>
+            <div style={{marginTop:24, display:'flex', gap:8, justifyContent:'center'}}>
+              <button onClick={() => { setResult(null); startScanner('pickupGroup'); }} className="btn btn-gold">
+                <IdCard size={16} /> Otro pase
+              </button>
+              <button onClick={() => setResult(null)} className="btn btn-secondary">Cerrar</button>
+            </div>
+          </div>
+        )}
+
+        {result && result.type !== 'group' && (
           <div className={`scan-result ${result.type === 'entry' ? 'entry' : 'exit'}`} style={{marginTop:16}}>
             {result.type === 'entry' ? <LogIn size={56} color="var(--success)" style={{margin:'0 auto 12px'}} />
               : result.type === 'exit' ? <LogOut size={56} color="var(--info)" style={{margin:'0 auto 12px'}} />

@@ -4,7 +4,7 @@ import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, delet
 import { updateEmail, updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
-import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard } from 'lucide-react';
+import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock } from 'lucide-react';
 import {
   NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel, makeClassId,
 } from '../config/colegio';
@@ -25,6 +25,11 @@ export default function ParentDashboard() {
   const [notifications, setNotifications] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [familyMembers, setFamilyMembers] = useState([]);
+  const [authorizations, setAuthorizations] = useState([]);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authForm, setAuthForm] = useState({ childIds: [], pickupName: '', pickupCode: '', validDate: '' });
+  const [myPickupCode, setMyPickupCode] = useState(userData?.pickupCode || '');
+  const [copied, setCopied] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [activeTab, setActiveTab] = useState('status');
 
@@ -73,7 +78,72 @@ export default function ParentDashboard() {
     setFamilyMembers(list);
   };
 
-  useEffect(() => { if (user) { loadMyStudents(); loadFamily(); } }, [user]);
+  const loadAuthorizations = async () => {
+    const snap = await getDocs(query(collection(db, 'pickupAuthorizations'), where('authorizedByParentId', '==', user.uid)));
+    const list = [];
+    snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+    list.sort((a, b) => (b.validDate || '').localeCompare(a.validDate || ''));
+    setAuthorizations(list);
+  };
+
+  useEffect(() => { if (user) { loadMyStudents(); loadFamily(); loadAuthorizations(); } }, [user]);
+
+  // Genera el código de recogida del padre la primera vez que entra a la pestaña.
+  const ensurePickupCode = async () => {
+    if (myPickupCode) return myPickupCode;
+    const code = 'RC-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+    await updateDoc(doc(db, 'users', user.uid), { pickupCode: code });
+    setMyPickupCode(code);
+    return code;
+  };
+  useEffect(() => { if (user && activeTab === 'recogidas' && !myPickupCode) ensurePickupCode(); }, [user, activeTab]);
+
+  const openAuth = () => {
+    setAuthForm({ childIds: students.length === 1 ? [students[0].id] : [], pickupName: '', pickupCode: '', validDate: today });
+    setShowAuth(true);
+  };
+
+  const toggleAuthChild = (id) =>
+    setAuthForm(f => ({ ...f, childIds: f.childIds.includes(id) ? f.childIds.filter(x => x !== id) : [...f.childIds, id] }));
+
+  const handleCreateAuth = async (e) => {
+    e.preventDefault();
+    if (!authForm.childIds.length) { alert('Selecciona al menos un hijo.'); return; }
+    if (!authForm.pickupCode.trim()) { alert('Ingresa el código de quien va a recoger.'); return; }
+    setLoading(true);
+    try {
+      const code = authForm.pickupCode.trim().toUpperCase();
+      await Promise.all(authForm.childIds.map(cid => {
+        const st = students.find(s => s.id === cid);
+        return addDoc(collection(db, 'pickupAuthorizations'), {
+          studentId: cid,
+          studentName: st ? `${st.name} ${st.lastName}` : '',
+          authorizedByParentId: user.uid,
+          authorizedByName: userData?.displayName || '',
+          pickupCode: code,
+          pickupName: authForm.pickupName.trim() || 'Persona autorizada',
+          validDate: authForm.validDate,
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        });
+      }));
+      setShowAuth(false);
+      loadAuthorizations();
+    } catch (err) { alert('Error al autorizar: ' + err.message); }
+    setLoading(false);
+  };
+
+  const cancelAuth = async (a) => {
+    if (!window.confirm('¿Cancelar esta autorización de recogida?')) return;
+    await deleteDoc(doc(db, 'pickupAuthorizations', a.id));
+    loadAuthorizations();
+  };
+
+  const copyPickupCode = () => {
+    navigator.clipboard.writeText(myPickupCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   // Asistencia del día del alumno seleccionado
   useEffect(() => {
@@ -197,6 +267,7 @@ export default function ParentDashboard() {
   const tabs = [
     { id: 'status', label: 'Asistencia', icon: Bell },
     { id: 'family', label: 'Grupo Familiar', icon: Users2 },
+    { id: 'recogidas', label: 'Recogidas', icon: Car },
     { id: 'avisos', label: 'Avisos', icon: Megaphone },
     { id: 'profile', label: 'Mi Perfil', icon: UserCircle },
   ];
@@ -327,6 +398,69 @@ export default function ParentDashboard() {
             </div>
           )}
         </>
+      )}
+
+      {activeTab === 'recogidas' && (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:16}}>
+          {/* Mi código de recogida */}
+          <div className="card" style={{textAlign:'center'}}>
+            <KeyRound size={32} color="var(--guinda)" style={{margin:'0 auto 8px'}}/>
+            <h3 className="card-title" style={{marginBottom:4}}>Mi código de recogida</h3>
+            <p style={{color:'var(--gris-500)', fontSize:'0.85rem', marginBottom:16}}>
+              Úsalo cuando <strong>tú</strong> vayas a recoger a otros niños: compártelo con sus papás para que te autoricen.
+            </p>
+            {myPickupCode ? (
+              <>
+                <div style={{background:'var(--crema)', borderRadius:'var(--radius-md)', padding:20, display:'inline-block'}}>
+                  <QRCodeSVG value={myPickupCode} size={160} level="H" />
+                </div>
+                <div className="flex items-center justify-center gap-2" style={{marginTop:16}}>
+                  <code style={{fontSize:'1.2rem', fontWeight:800, letterSpacing:1, color:'var(--guinda)'}}>{myPickupCode}</code>
+                  <button onClick={copyPickupCode} className="btn btn-sm btn-secondary"><Copy size={14}/> {copied ? 'Copiado' : 'Copiar'}</button>
+                </div>
+              </>
+            ) : (
+              <p style={{color:'var(--gris-500)'}}>Generando tu código...</p>
+            )}
+          </div>
+
+          {/* Autorizaciones que he creado */}
+          <div className="card">
+            <div className="flex justify-between items-center" style={{marginBottom:12}}>
+              <h3 className="card-title" style={{margin:0}}>Autorizar a alguien</h3>
+              <button onClick={openAuth} className="btn btn-primary btn-sm" disabled={students.length === 0}><Plus size={14}/> Nueva</button>
+            </div>
+            <p style={{color:'var(--gris-500)', fontSize:'0.85rem', marginBottom:16}}>
+              Cuando <strong>otra persona</strong> vaya a recoger a tu hijo (por ejemplo, el papá de un amiguito), pega aquí <em>su</em> código de recogida y elige la fecha.
+            </p>
+            {authorizations.length === 0 ? (
+              <div className="empty-state" style={{padding:24}}><p className="empty-state-text">No has creado autorizaciones.</p></div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {authorizations.map(a => {
+                  const isToday = a.validDate === today;
+                  const past = a.validDate < today;
+                  return (
+                    <div key={a.id} style={{padding:12, borderRadius:'var(--radius-sm)', border:'1px solid var(--gris-200)', opacity: past ? 0.55 : 1}}>
+                      <div className="flex justify-between items-center">
+                        <strong style={{fontSize:'0.9rem'}}>{a.studentName}</strong>
+                        <button onClick={() => cancelAuth(a)} className="btn btn-sm btn-danger" title="Cancelar"><Trash2 size={12}/></button>
+                      </div>
+                      <p style={{fontSize:'0.8rem', color:'var(--gris-500)', marginTop:4, display:'flex', alignItems:'center', gap:6, flexWrap:'wrap'}}>
+                        <Car size={13}/> {a.pickupName} · <code style={{color:'var(--guinda)', fontWeight:700}}>{a.pickupCode}</code>
+                      </p>
+                      <p style={{fontSize:'0.78rem', marginTop:4}}>
+                        <span className={`badge ${isToday ? 'badge-success' : past ? 'badge-danger' : 'badge-info'}`}>
+                          <Clock size={11}/> {past ? 'Vencida' : isToday ? 'Válida hoy' : 'Programada'} · {a.validDate}
+                        </span>
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {activeTab === 'avisos' && (
@@ -470,6 +604,49 @@ export default function ParentDashboard() {
               <div className="modal-footer">
                 <button type="button" onClick={() => setShowMember(false)} className="btn btn-secondary">Cancelar</button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Crear pase'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Autorizar Recogida */}
+      {showAuth && (
+        <div className="modal-overlay" onClick={() => setShowAuth(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Autorizar recogida temporal</h3>
+              <button className="modal-close" onClick={() => setShowAuth(false)}><X size={16}/></button>
+            </div>
+            <form onSubmit={handleCreateAuth}>
+              <div className="form-group">
+                <label className="form-label">¿A quién(es) van a recoger?</label>
+                <div className="flex flex-col gap-2">
+                  {students.map(s => (
+                    <button type="button" key={s.id} onClick={() => toggleAuthChild(s.id)}
+                      className={`btn ${authForm.childIds.includes(s.id) ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{justifyContent:'flex-start'}}>
+                      {authForm.childIds.includes(s.id) ? '✓ ' : ''}{s.name} {s.lastName}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Nombre de quien recoge</label>
+                <input className="form-input" placeholder="Ej. Laura (mamá de Diego)" value={authForm.pickupName} onChange={e => setAuthForm({...authForm, pickupName: e.target.value})} required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Código de recogida de esa persona</label>
+                <input className="form-input" placeholder="Ej. RC-AB12CD" style={{textTransform:'uppercase', letterSpacing:1, fontWeight:700}} value={authForm.pickupCode} onChange={e => setAuthForm({...authForm, pickupCode: e.target.value})} required />
+                <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:4}}>Pídele su código (lo encuentra en su app, pestaña Recogidas).</p>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Fecha válida</label>
+                <input type="date" className="form-input" min={today} value={authForm.validDate} onChange={e => setAuthForm({...authForm, validDate: e.target.value})} required />
+              </div>
+              <div className="modal-footer">
+                <button type="button" onClick={() => setShowAuth(false)} className="btn btn-secondary">Cancelar</button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Autorizando...' : 'Autorizar'}</button>
               </div>
             </form>
           </div>
