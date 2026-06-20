@@ -1,0 +1,220 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function hasUserDoc() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function userData() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function role() {
+      return hasUserDoc() ? userData().role : null;
+    }
+
+    function isAdmin()  { return role() == "admin" || role() == "superadmin"; }
+    function isGuard()  { return role() == "guard"; }
+    function isParent() { return role() == "parent"; }
+    function isTeacher() { return role() == "teacher"; }
+    function isKiosk()  { return role() == "kiosk"; }
+    function isAdminOrGuard() { return isAdmin() || isGuard(); }
+    // Cuentas que pueden registrar entradas/salidas: admin, checador y kioskos de tablet.
+    function canScan() { return isAdminOrGuard() || isKiosk(); }
+
+    // Lista de grupos (classIds) asignados a un profesor.
+    function teacherClasses() {
+      return isTeacher() && userData().classIds is list
+        ? userData().classIds
+        : [];
+    }
+    function teacherOwnsClass(classId) {
+      return classId in teacherClasses();
+    }
+
+    function isAssignedParent(studentData) {
+      return isParent()
+        && studentData.parentIds is list
+        && request.auth.uid in studentData.parentIds;
+    }
+
+    function studentDoc(studentId) {
+      return get(/databases/$(database)/documents/students/$(studentId)).data;
+    }
+    function studentExists(studentId) {
+      return exists(/databases/$(database)/documents/students/$(studentId));
+    }
+
+    // ---------------- USERS ----------------
+    match /users/{userId} {
+      allow read: if signedIn() && (
+        request.auth.uid == userId ||
+        isAdminOrGuard() ||
+        isTeacher() ||
+        isKiosk() ||
+        // Directorio de personal: cualquier usuario autenticado puede ver cuentas de
+        // profesores/administración para poder contactarlas por el chat.
+        resource.data.role in ["teacher", "admin", "superadmin"]
+      );
+
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (request.auth.uid == userId && request.resource.data.role == "parent")
+      );
+
+      allow update: if signedIn() && (
+        isAdmin() ||
+        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+      );
+
+      allow delete: if signedIn() && isAdmin();
+
+      // Grupo familiar / pases de acceso (quién puede recoger al alumno).
+      match /familyMembers/{memberId} {
+        allow read: if signedIn() && (
+          request.auth.uid == userId || isAdminOrGuard() || isKiosk()
+        );
+        allow write: if signedIn() && (
+          request.auth.uid == userId || isAdmin()
+        );
+      }
+    }
+
+    // ---------------- STUDENTS ----------------
+    match /students/{studentId} {
+      allow read: if signedIn() && (
+        canScan() ||
+        isAssignedParent(resource.data) ||
+        (isTeacher() && teacherOwnsClass(resource.data.classId))
+      );
+
+      allow create: if signedIn() && (
+        isAdminOrGuard() ||
+        (
+          isParent() &&
+          request.resource.data.parentIds is list &&
+          request.resource.data.parentIds.size() == 1 &&
+          request.auth.uid in request.resource.data.parentIds
+        )
+      );
+
+      allow update: if signedIn() && (
+        isAdminOrGuard() ||
+        (
+          isParent() &&
+          isAssignedParent(resource.data) &&
+          request.resource.data.parentIds == resource.data.parentIds
+        )
+      );
+
+      allow delete: if signedIn() && isAdmin();
+    }
+
+    // ---------------- ENTRADAS / SALIDAS AL PLANTEL ----------------
+    match /attendance/{date}/records/{recordId} {
+      allow read: if signedIn() && (
+        canScan() ||
+        (
+          isParent() &&
+          studentExists(resource.data.studentId) &&
+          request.auth.uid in studentDoc(resource.data.studentId).parentIds
+        )
+      );
+      allow create: if signedIn() && canScan();
+      allow update: if signedIn() && canScan();
+      allow delete: if signedIn() && isAdmin();
+    }
+
+    // ---------------- ASISTENCIA A CLASE (profesor) ----------------
+    match /classAttendance/{date}/records/{recordId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && teacherOwnsClass(resource.data.classId)) ||
+        (
+          isParent() &&
+          studentExists(resource.data.studentId) &&
+          request.auth.uid in studentDoc(resource.data.studentId).parentIds
+        )
+      );
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && teacherOwnsClass(request.resource.data.classId))
+      );
+      allow update: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && teacherOwnsClass(resource.data.classId))
+      );
+      allow delete: if signedIn() && isAdmin();
+    }
+
+    // ---------------- ANUNCIOS / AVISOS ----------------
+    // scope.type: "all" | "plantel" | "class". scope.value contiene plantel o classId.
+    match /announcements/{announcementId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (
+          isTeacher() &&
+          request.resource.data.scope.type == "class" &&
+          teacherOwnsClass(request.resource.data.scope.value)
+        )
+      );
+      allow update, delete: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && resource.data.authorId == request.auth.uid)
+      );
+    }
+
+    // ---------------- NOTIFICACIONES (push individual al padre) ----------------
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && (
+        isAdminOrGuard() ||
+        resource.data.parentId == request.auth.uid
+      );
+      allow create: if signedIn() && canScan();
+      allow update: if signedIn() && (
+        isAdminOrGuard() ||
+        resource.data.parentId == request.auth.uid
+      );
+      allow delete: if signedIn() && isAdmin();
+    }
+
+    // ---------------- CHAT / MENSAJES ----------------
+    // Modelo unificado: cada conversación tiene un array participants[] de uids.
+    // El acceso se controla por pertenencia a ese array. Quién puede iniciar una
+    // conversación con quién se acota en el cliente (profesor solo con padres de sus
+    // grupos; padre solo con profesores de los grupos de sus hijos y con administración).
+    function conversationParticipants(convId) {
+      return get(/databases/$(database)/documents/conversations/$(convId)).data.participants;
+    }
+    match /conversations/{convId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow create: if signedIn()
+        && request.resource.data.participants is list
+        && request.auth.uid in request.resource.data.participants;
+      allow update: if signedIn() && request.auth.uid in resource.data.participants;
+      allow delete: if signedIn() && isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if signedIn() && request.auth.uid in conversationParticipants(convId);
+        allow create: if signedIn()
+          && request.auth.uid in conversationParticipants(convId)
+          && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

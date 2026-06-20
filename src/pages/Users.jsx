@@ -1,72 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { db, secondaryAuth, auth } from '../firebase';
-import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
-import { UserPlus, Search, Copy, Trash2, Link as LinkIcon, X, Edit, Key } from 'lucide-react';
+import { UserPlus, Search, Copy, Trash2, X, Edit, Key } from 'lucide-react';
+import { ROLE_LABELS, NOMBRE_PLANTELES, nivelesDePlantel, gradosDeNivel, GRUPOS, makeClassId, classLabel, parseClassId } from '../config/colegio';
+
+const ROLE_BADGE = { superadmin: 'badge-danger', admin: 'badge-gold', teacher: 'badge-info', guard: 'badge-warning', parent: 'badge-success', kiosk: 'badge-info' };
+const emptyForm = { displayName: '', email: '', password: '', role: 'parent', classIds: [], plantel: '' };
+
+// Selector de grupos para profesores (agrupado por plantel).
+function ClassPicker({ value, onChange }) {
+  const toggle = (id) => onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id]);
+  return (
+    <div style={{maxHeight:240, overflowY:'auto', border:'1.5px solid var(--gris-200)', borderRadius:'var(--radius-sm)', padding:12}}>
+      {NOMBRE_PLANTELES.map(plantel => (
+        <div key={plantel} style={{marginBottom:10}}>
+          <div style={{fontWeight:700, fontSize:'0.8rem', color:'var(--guinda)', marginBottom:4}}>{plantel}</div>
+          <div style={{display:'flex', flexWrap:'wrap', gap:6}}>
+            {nivelesDePlantel(plantel).flatMap(nivel =>
+              gradosDeNivel(nivel).flatMap(grado =>
+                GRUPOS.map(grupo => {
+                  const meta = { plantel, nivel, grado, grupo };
+                  const id = makeClassId(meta);
+                  const on = value.includes(id);
+                  return (
+                    <button type="button" key={id} onClick={() => toggle(id)}
+                      className={`btn btn-sm ${on ? 'btn-primary' : 'btn-secondary'}`}>
+                      {grado} {nivel.slice(0,4)} {grupo}
+                    </button>
+                  );
+                })
+              )
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(null);
   const [editUser, setEditUser] = useState(null);
   const [deleteUser, setDeleteUser] = useState(null);
   const [baseUrl, setBaseUrl] = useState(window.location.origin);
   const [loading, setLoading] = useState(false);
-  
-  const [form, setForm] = useState({
-    displayName: '',
-    email: '',
-    password: ''
-  });
+  const [form, setForm] = useState(emptyForm);
 
   const loadUsers = async () => {
-    const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'parent')));
+    const snap = await getDocs(collection(db, 'users'));
     const list = [];
     snap.forEach(d => list.push({ id: d.id, ...d.data() }));
-    list.sort((a, b) => a.displayName.localeCompare(b.displayName));
+    list.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
     setUsers(list);
   };
 
   useEffect(() => { loadUsers(); }, []);
 
-  const generatePassword = () => {
-    return Math.random().toString(36).slice(-8);
-  };
+  const generatePassword = () => Math.random().toString(36).slice(-8);
 
-  const handleOpenModal = () => {
-    setForm({
-      displayName: '',
-      email: '',
-      password: generatePassword()
-    });
-    setShowModal(true);
-  };
+  const openCreate = () => { setForm({ ...emptyForm, password: generatePassword() }); setShowModal(true); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Crear usuario en Firebase Auth usando la app secundaria para no desloguear al admin
       const cred = await createUserWithEmailAndPassword(secondaryAuth, form.email, form.password);
-      
-      // Guardar datos en Firestore
-      await setDoc(doc(db, 'users', cred.user.uid), {
+      const payload = {
         email: form.email,
         displayName: form.displayName,
-        role: 'parent',
-        createdAt: new Date().toISOString()
-      });
-
-      // Cerrar sesión en la app secundaria
+        role: form.role,
+        createdAt: new Date().toISOString(),
+      };
+      if (form.role === 'teacher') payload.classIds = form.classIds;
+      if (form.role === 'kiosk') payload.plantel = form.plantel;
+      await setDoc(doc(db, 'users', cred.user.uid), payload);
       await signOut(secondaryAuth);
-
       setShowModal(false);
-      setShowLinkModal({
-        email: form.email,
-        password: form.password,
-        displayName: form.displayName
-      });
+      setShowLinkModal({ email: form.email, password: form.password, displayName: form.displayName, role: form.role });
       loadUsers();
     } catch (err) {
       console.error(err);
@@ -75,14 +90,19 @@ export default function Users() {
     setLoading(false);
   };
 
+  const openEdit = (u) => {
+    setForm({ displayName: u.displayName || '', email: u.email || '', password: '', role: u.role || 'parent', classIds: u.classIds || [], plantel: u.plantel || '' });
+    setEditUser(u);
+  };
+
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await updateDoc(doc(db, 'users', editUser.id), {
-        displayName: form.displayName,
-        email: form.email
-      });
+      const payload = { displayName: form.displayName, email: form.email, role: form.role };
+      payload.classIds = form.role === 'teacher' ? form.classIds : [];
+      payload.plantel = form.role === 'kiosk' ? form.plantel : '';
+      await updateDoc(doc(db, 'users', editUser.id), payload);
       setEditUser(null);
       loadUsers();
     } catch (err) {
@@ -95,13 +115,7 @@ export default function Users() {
     try {
       await sendPasswordResetEmail(auth, email);
       alert('Correo de restablecimiento enviado a ' + email);
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
-  };
-
-  const confirmDelete = (u) => {
-    setDeleteUser(u);
+    } catch (e) { alert('Error: ' + e.message); }
   };
 
   const handleDelete = async () => {
@@ -111,33 +125,68 @@ export default function Users() {
       await deleteDoc(doc(db, 'users', deleteUser.id));
       setDeleteUser(null);
       loadUsers();
-    } catch(err) {
-      alert("Error: " + err.message);
-    }
+    } catch (err) { alert('Error: ' + err.message); }
     setLoading(false);
   };
 
-  const copyLink = (userData) => {
-    const link = `${baseUrl}/login?email=${encodeURIComponent(userData.email)}&pwd=${encodeURIComponent(userData.password)}`;
+  const copyLink = (u) => {
+    const link = `${baseUrl}/login?email=${encodeURIComponent(u.email)}&pwd=${encodeURIComponent(u.password)}`;
     navigator.clipboard.writeText(link);
     alert('Enlace de acceso copiado al portapapeles');
   };
 
-  const filtered = users.filter(u => 
-    u.displayName.toLowerCase().includes(search.toLowerCase()) || 
-    u.email.toLowerCase().includes(search.toLowerCase())
+  const filtered = useMemo(() => users.filter(u => {
+    if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+    const q = search.toLowerCase();
+    return (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+  }), [users, roleFilter, search]);
+
+  const counts = useMemo(() => {
+    const c = { admin: 0, teacher: 0, guard: 0, parent: 0, kiosk: 0 };
+    users.forEach(u => { if (c[u.role] !== undefined) c[u.role] += 1; });
+    return c;
+  }, [users]);
+
+  const renderRoleFields = () => (
+    <>
+      <div className="form-group">
+        <label className="form-label">Rol</label>
+        <select className="form-select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
+          <option value="parent">Padre / Tutor</option>
+          <option value="teacher">Profesor</option>
+          <option value="guard">Checador</option>
+          <option value="kiosk">Kiosko (tablet)</option>
+          <option value="admin">Administrador</option>
+          <option value="superadmin">Super Administrador</option>
+        </select>
+      </div>
+      {form.role === 'teacher' && (
+        <div className="form-group">
+          <label className="form-label">Grupos asignados ({form.classIds.length})</label>
+          <ClassPicker value={form.classIds} onChange={(ids) => setForm({ ...form, classIds: ids })} />
+        </div>
+      )}
+      {form.role === 'kiosk' && (
+        <div className="form-group">
+          <label className="form-label">Plantel del kiosko</label>
+          <select className="form-select" value={form.plantel} onChange={e => setForm({ ...form, plantel: e.target.value })} required>
+            <option value="">Selecciona un plantel</option>
+            {NOMBRE_PLANTELES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:4}}>La asistencia registrada en esta tablet se marcará con este plantel.</p>
+        </div>
+      )}
+    </>
   );
 
   return (
     <div className="page-container animate-in">
       <div className="page-header flex justify-between items-center">
         <div>
-          <h1 className="page-title">Gestión de Padres de Familia</h1>
-          <p className="page-subtitle">{users.length} padres registrados</p>
+          <h1 className="page-title">Gestión de Usuarios</h1>
+          <p className="page-subtitle">{users.length} usuarios · {counts.admin} admin · {counts.teacher} profesores · {counts.guard} checadores · {counts.parent} padres</p>
         </div>
-        <button onClick={handleOpenModal} className="btn btn-primary">
-          <UserPlus size={16}/> Nuevo Padre
-        </button>
+        <button onClick={openCreate} className="btn btn-primary"><UserPlus size={16}/> Nuevo Usuario</button>
       </div>
 
       <div className="card mb-4 flex gap-4 flex-col md:flex-row">
@@ -145,36 +194,38 @@ export default function Users() {
           <Search size={18} style={{position:'absolute',left:14,top:11,color:'var(--gris-500)'}} />
           <input className="form-input" placeholder="Buscar por nombre o correo..." value={search} onChange={e => setSearch(e.target.value)} style={{paddingLeft:40}} />
         </div>
-        <div style={{flex:1, display:'flex', alignItems:'center', gap:8}}>
-          <span className="form-label" style={{marginBottom:0, whiteSpace:'nowrap'}}>URL Base para enlaces:</span>
-          <input className="form-input" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://tu-dominio.com" />
-        </div>
+        <select className="form-select" style={{maxWidth:200}} value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+          <option value="all">Todos los roles</option>
+          <option value="admin">Administradores</option>
+          <option value="teacher">Profesores</option>
+          <option value="guard">Checadores</option>
+          <option value="kiosk">Kioskos (tablet)</option>
+          <option value="parent">Padres</option>
+        </select>
       </div>
 
       <div className="card">
         {filtered.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">👥</div>
-            <p className="empty-state-text">No se encontraron padres de familia</p>
+            <p className="empty-state-text">No se encontraron usuarios</p>
           </div>
         ) : (
           <div className="table-container">
             <table>
-              <thead><tr><th>Nombre</th><th>Correo</th><th>Fecha Registro</th><th>Acciones</th></tr></thead>
+              <thead><tr><th>Nombre</th><th>Rol</th><th>Correo</th><th>Grupos</th><th>Acciones</th></tr></thead>
               <tbody>
                 {filtered.map(u => (
                   <tr key={u.id}>
                     <td style={{fontWeight:600}}>{u.displayName}</td>
+                    <td><span className={`badge ${ROLE_BADGE[u.role] || 'badge-info'}`}>{ROLE_LABELS[u.role] || u.role}</span></td>
                     <td>{u.email}</td>
-                    <td>{new Date(u.createdAt).toLocaleDateString('es-MX')}</td>
+                    <td>{u.role === 'teacher' ? (u.classIds?.length || 0) : '—'}</td>
                     <td>
                       <div className="flex gap-2">
-                        <button onClick={() => {
-                          setEditUser(u);
-                          setForm({ displayName: u.displayName, email: u.email, password: '' });
-                        }} className="btn btn-sm btn-secondary" title="Editar"><Edit size={14}/></button>
+                        <button onClick={() => openEdit(u)} className="btn btn-sm btn-secondary" title="Editar"><Edit size={14}/></button>
                         <button onClick={() => handleSendReset(u.email)} className="btn btn-sm btn-gold" title="Restablecer Contraseña"><Key size={14}/></button>
-                        <button onClick={() => confirmDelete(u)} className="btn btn-sm btn-danger" title="Eliminar"><Trash2 size={14}/></button>
+                        <button onClick={() => setDeleteUser(u)} className="btn btn-sm btn-danger" title="Eliminar"><Trash2 size={14}/></button>
                       </div>
                     </td>
                   </tr>
@@ -188,9 +239,9 @@ export default function Users() {
       {/* Modal Nuevo Usuario */}
       {showModal && (
         <div className="modal-overlay" onClick={() => !loading && setShowModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Registrar Padre de Familia</h3>
+              <h3 className="modal-title">Nuevo Usuario</h3>
               <button className="modal-close" onClick={() => !loading && setShowModal(false)}><X size={16}/></button>
             </div>
             <form onSubmit={handleSubmit}>
@@ -205,8 +256,8 @@ export default function Users() {
               <div className="form-group">
                 <label className="form-label">Contraseña (Generada automáticamente)</label>
                 <input className="form-input" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required />
-                <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:4}}>Puedes cambiarla si lo deseas antes de guardar.</p>
               </div>
+              {renderRoleFields()}
               <div className="modal-footer">
                 <button type="button" onClick={() => setShowModal(false)} className="btn btn-secondary" disabled={loading}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Crear Usuario'}</button>
@@ -219,9 +270,9 @@ export default function Users() {
       {/* Modal Editar Usuario */}
       {editUser && (
         <div className="modal-overlay" onClick={() => !loading && setEditUser(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Editar Padre de Familia</h3>
+              <h3 className="modal-title">Editar Usuario</h3>
               <button className="modal-close" onClick={() => !loading && setEditUser(null)}><X size={16}/></button>
             </div>
             <form onSubmit={handleEditSubmit}>
@@ -230,10 +281,11 @@ export default function Users() {
                 <input className="form-input" value={form.displayName} onChange={e => setForm({...form, displayName: e.target.value})} required />
               </div>
               <div className="form-group">
-                <label className="form-label">Correo Electrónico (Solo referencia)</label>
+                <label className="form-label">Correo Electrónico (referencia)</label>
                 <input type="email" className="form-input" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required />
-                <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:4}}>Nota: Cambiar el correo aquí no cambia el inicio de sesión. El usuario debe cambiarlo desde su Perfil.</p>
+                <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:4}}>Cambiar el correo aquí no cambia el inicio de sesión.</p>
               </div>
+              {renderRoleFields()}
               <div className="modal-footer">
                 <button type="button" onClick={() => setEditUser(null)} className="btn btn-secondary" disabled={loading}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
@@ -253,8 +305,8 @@ export default function Users() {
             </div>
             <div style={{marginBottom: 24}}>
               <Trash2 size={48} color="var(--danger)" style={{margin: '0 auto 16px'}} />
-              <p>¿Estás seguro de que deseas eliminar a <strong>{deleteUser.displayName}</strong>?</p>
-              <p style={{fontSize: '0.85rem', color: 'var(--gris-500)', marginTop: 8}}>Esto no borrará su cuenta de Auth, solo su perfil en la base de datos.</p>
+              <p>¿Eliminar a <strong>{deleteUser.displayName}</strong>?</p>
+              <p style={{fontSize: '0.85rem', color: 'var(--gris-500)', marginTop: 8}}>Esto no borra su cuenta de Auth, solo su perfil en la base de datos.</p>
             </div>
             <div className="modal-footer" style={{justifyContent: 'center'}}>
               <button onClick={() => setDeleteUser(null)} className="btn btn-secondary" disabled={loading}>Cancelar</button>
@@ -271,15 +323,13 @@ export default function Users() {
             <div style={{width:64,height:64,borderRadius:'50%',background:'var(--success-bg)',color:'var(--success)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}>
               <UserPlus size={32} />
             </div>
-            <h3 className="modal-title" style={{marginBottom:8}}>¡Usuario Creado Exitosamente!</h3>
+            <h3 className="modal-title" style={{marginBottom:8}}>¡Usuario Creado!</h3>
             <p style={{color:'var(--gris-500)', marginBottom:24}}>
-              Se ha creado el acceso para <strong>{showLinkModal.displayName}</strong>.
+              {ROLE_LABELS[showLinkModal.role]} · <strong>{showLinkModal.displayName}</strong>
             </p>
-            
             <div style={{background:'var(--gris-100)', padding:16, borderRadius:'var(--radius-sm)', textAlign:'left', marginBottom:24}}>
               <p style={{fontSize:'0.85rem', marginBottom:8}}><strong>Correo:</strong> {showLinkModal.email}</p>
               <p style={{fontSize:'0.85rem', marginBottom:8}}><strong>Contraseña:</strong> {showLinkModal.password}</p>
-              
               <div style={{marginTop:16}}>
                 <label className="form-label">Enlace de acceso directo:</label>
                 <div className="flex gap-2">
@@ -288,7 +338,6 @@ export default function Users() {
                 </div>
               </div>
             </div>
-
             <button onClick={() => setShowLinkModal(null)} className="btn btn-primary w-full">Aceptar</button>
           </div>
         </div>

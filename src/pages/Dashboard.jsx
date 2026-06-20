@@ -1,20 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { Users, UserCheck, UserX, Calendar as CalendarIcon, Download, Filter, FileText } from 'lucide-react';
-
-const plantelesConfig = {
-  'Tlalpan': ['Maternal', 'Kinder 1', 'Kinder 2', 'Kinder 3', 'Preprimaria', '1° Primaria', '2° Primaria', '3° Primaria', '4° Primaria', '5° Primaria', '6° Primaria', '1° Secundaria', '2° Secundaria', '3° Secundaria'],
-  'Coyoacán': ['Maternal', 'Kinder 1', 'Kinder 2', 'Kinder 3', 'Preprimaria', '1° Primaria', '2° Primaria', '3° Primaria', '4° Primaria', '5° Primaria', '6° Primaria'],
-  'Aztecas': ['1° Secundaria', '2° Secundaria', '3° Secundaria', '1° Bachillerato', '3° Bachillerato', '5° Bachillerato'],
-  'Xochimilco': ['1° Primaria', '2° Primaria', '3° Primaria', '4° Primaria', '5° Primaria', '6° Primaria', '1° Secundaria', '2° Secundaria', '3° Secundaria']
-};
-const allGrades = [...new Set(Object.values(plantelesConfig).flat())];
+import { Users, UserCheck, UserX, Download, Filter, FileText, Clock, ClipboardCheck } from 'lucide-react';
+import { NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel } from '../config/colegio';
 
 export default function Dashboard() {
   const [students, setStudents] = useState([]);
   const [dailyRecords, setDailyRecords] = useState({});
   const [monthlyRecords, setMonthlyRecords] = useState({});
+  const [classRecords, setClassRecords] = useState({}); // studentId -> { status, takenByName }
   
   const todayDate = new Date().toLocaleDateString('en-CA');
   const currentMonth = todayDate.substring(0, 7);
@@ -24,26 +18,39 @@ export default function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
 
   const [filterPlantel, setFilterPlantel] = useState('');
-  const [filterGrade, setFilterGrade] = useState('');
-  const [filterGroup, setFilterGroup] = useState('');
+  const [filterNivel, setFilterNivel] = useState('');
+  const [filterGrado, setFilterGrado] = useState('');
+  const [filterGrupo, setFilterGrupo] = useState('');
 
   const [loading, setLoading] = useState(true);
 
   // Load basic student directory
   useEffect(() => {
     const fetchStudents = async () => {
-      const snap = await getDocs(collection(db, 'students'));
-      const list = [];
-      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
-      list.sort((a, b) => `${a.lastName} ${a.name}`.localeCompare(`${b.lastName} ${b.name}`));
-      setStudents(list);
+      setLoading(true);
+      try {
+        const snap = await getDocs(collection(db, 'students'));
+        const list = [];
+        snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+        list.sort((a, b) => `${a.lastName} ${a.name}`.localeCompare(`${b.lastName} ${b.name}`));
+        setStudents(list);
+        if (list.length === 0) setLoading(false);
+      } catch (err) {
+        console.error('Error fetching students', err);
+        setLoading(false);
+      }
     };
     fetchStudents();
   }, []);
 
   // Fetch Daily Records
   useEffect(() => {
-    if (viewMode !== 'daily' || students.length === 0) return;
+    if (viewMode !== 'daily') return;
+    if (students.length === 0) {
+      setDailyRecords({});
+      setLoading(false);
+      return;
+    }
     const fetchDaily = async () => {
       setLoading(true);
       try {
@@ -62,9 +69,40 @@ export default function Dashboard() {
     fetchDaily();
   }, [viewMode, selectedDate, students]);
 
+  // Fetch Class Attendance Records (asistencia a clase tomada por profesores)
+  useEffect(() => {
+    if (viewMode !== 'class') return;
+    if (students.length === 0) {
+      setClassRecords({});
+      setLoading(false);
+      return;
+    }
+    const fetchClass = async () => {
+      setLoading(true);
+      try {
+        const snap = await getDocs(collection(db, 'classAttendance', selectedDate, 'records'));
+        const recs = {};
+        snap.forEach(d => {
+          const data = d.data();
+          recs[data.studentId] = data;
+        });
+        setClassRecords(recs);
+      } catch (err) {
+        console.error('Error fetching class attendance', err);
+      }
+      setLoading(false);
+    };
+    fetchClass();
+  }, [viewMode, selectedDate, students]);
+
   // Fetch Monthly Records
   useEffect(() => {
-    if (viewMode !== 'monthly' || students.length === 0) return;
+    if (viewMode !== 'monthly') return;
+    if (students.length === 0) {
+      setMonthlyRecords({});
+      setLoading(false);
+      return;
+    }
     const fetchMonthly = async () => {
       setLoading(true);
       try {
@@ -116,11 +154,12 @@ export default function Dashboard() {
   const filteredStudents = useMemo(() => {
     return students.filter(s => {
       if (filterPlantel && s.plantel !== filterPlantel) return false;
-      if (filterGrade && s.grade !== filterGrade) return false;
-      if (filterGroup && s.group !== filterGroup) return false;
+      if (filterNivel && s.nivel !== filterNivel) return false;
+      if (filterGrado && s.grado !== filterGrado) return false;
+      if (filterGrupo && s.grupo !== filterGrupo) return false;
       return true;
     });
-  }, [students, filterPlantel, filterGrade, filterGroup]);
+  }, [students, filterPlantel, filterNivel, filterGrado, filterGrupo]);
 
   // Daily Stats Calculation
   const dailyStats = useMemo(() => {
@@ -135,6 +174,20 @@ export default function Dashboard() {
       absent: filteredStudents.length - present
     };
   }, [filteredStudents, dailyRecords, viewMode]);
+
+  // Class Attendance Stats
+  const classStats = useMemo(() => {
+    if (viewMode !== 'class') return null;
+    let present = 0, late = 0, absent = 0, pending = 0;
+    filteredStudents.forEach(s => {
+      const st = classRecords[s.id]?.status;
+      if (st === 'present') present++;
+      else if (st === 'late') late++;
+      else if (st === 'absent') absent++;
+      else pending++;
+    });
+    return { total: filteredStudents.length, present, late, absent, pending };
+  }, [filteredStudents, classRecords, viewMode]);
 
   // Monthly Stats Calculation
   const monthlyStats = useMemo(() => {
@@ -154,8 +207,9 @@ export default function Dashboard() {
     };
   }, [filteredStudents, monthlyRecords, viewMode]);
 
-  const planteles = Object.keys(plantelesConfig);
-  const availableGrades = filterPlantel ? plantelesConfig[filterPlantel] : allGrades;
+  const planteles = NOMBRE_PLANTELES;
+  const availableNiveles = filterPlantel ? nivelesDePlantel(filterPlantel) : [];
+  const availableGrados = filterNivel ? gradosDeNivel(filterNivel) : [];
 
   return (
     <div className="page-container animate-in">
@@ -177,10 +231,22 @@ export default function Dashboard() {
           >
             Vista Diaria
           </button>
-          <button 
+          <button
             className="btn"
             style={{
-              background: viewMode === 'monthly' ? 'var(--guinda)' : 'transparent', 
+              background: viewMode === 'class' ? 'var(--guinda)' : 'transparent',
+              color: viewMode === 'class' ? 'white' : 'var(--gris-600)',
+              border: 'none',
+              boxShadow: 'none'
+            }}
+            onClick={() => setViewMode('class')}
+          >
+            Asistencia a Clase
+          </button>
+          <button
+            className="btn"
+            style={{
+              background: viewMode === 'monthly' ? 'var(--guinda)' : 'transparent',
               color: viewMode === 'monthly' ? 'white' : 'var(--gris-600)',
               border: 'none',
               boxShadow: 'none'
@@ -205,35 +271,43 @@ export default function Dashboard() {
           gap: '16px'
         }}>
           <div className="form-group" style={{marginBottom: 0}}>
-            <label className="form-label">{viewMode === 'daily' ? 'Fecha Exacta' : 'Mes del Reporte'}</label>
-            {viewMode === 'daily' ? (
-              <input type="date" className="form-input" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} max={todayDate} />
-            ) : (
+            <label className="form-label">{viewMode === 'monthly' ? 'Mes del Reporte' : 'Fecha Exacta'}</label>
+            {viewMode === 'monthly' ? (
               <input type="month" className="form-input" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} max={currentMonth} />
+            ) : (
+              <input type="date" className="form-input" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} max={todayDate} />
             )}
           </div>
 
           <div className="form-group" style={{marginBottom: 0}}>
             <label className="form-label">Plantel</label>
-            <select className="form-select" value={filterPlantel} onChange={e => {setFilterPlantel(e.target.value); setFilterGrade('');}}>
+            <select className="form-select" value={filterPlantel} onChange={e => {setFilterPlantel(e.target.value); setFilterNivel(''); setFilterGrado('');}}>
               <option value="">Todos los Planteles</option>
               {planteles.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
-          
+
           <div className="form-group" style={{marginBottom: 0}}>
-            <label className="form-label">Grado Escolar</label>
-            <select className="form-select" value={filterGrade} onChange={e => setFilterGrade(e.target.value)}>
+            <label className="form-label">Nivel</label>
+            <select className="form-select" value={filterNivel} onChange={e => {setFilterNivel(e.target.value); setFilterGrado('');}} disabled={!filterPlantel}>
+              <option value="">Todos los Niveles</option>
+              {availableNiveles.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+
+          <div className="form-group" style={{marginBottom: 0}}>
+            <label className="form-label">Grado</label>
+            <select className="form-select" value={filterGrado} onChange={e => setFilterGrado(e.target.value)} disabled={!filterNivel}>
               <option value="">Todos los Grados</option>
-              {availableGrades.map(g => <option key={g} value={g}>{g}</option>)}
+              {availableGrados.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
 
           <div className="form-group" style={{marginBottom: 0}}>
             <label className="form-label">Grupo</label>
-            <select className="form-select" value={filterGroup} onChange={e => setFilterGroup(e.target.value)}>
+            <select className="form-select" value={filterGrupo} onChange={e => setFilterGrupo(e.target.value)}>
               <option value="">Todos los Grupos</option>
-              {['A', 'B', 'C'].map(g => <option key={g} value={g}>{g}</option>)}
+              {GRUPOS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
         </div>
@@ -279,6 +353,47 @@ export default function Dashboard() {
               </>
             )}
 
+            {viewMode === 'class' && classStats && (
+              <>
+                <div className="stat-card">
+                  <div className="stat-icon" style={{background: 'var(--success-bg)'}}>
+                    <UserCheck size={24} color="var(--success)" />
+                  </div>
+                  <div>
+                    <div className="stat-label">Presentes en Clase</div>
+                    <div className="stat-value">{classStats.present}</div>
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon" style={{background: 'var(--warning-bg)'}}>
+                    <Clock size={24} color="var(--warning)" />
+                  </div>
+                  <div>
+                    <div className="stat-label">Tarde</div>
+                    <div className="stat-value">{classStats.late}</div>
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon" style={{background: 'var(--danger-bg)'}}>
+                    <UserX size={24} color="var(--danger)" />
+                  </div>
+                  <div>
+                    <div className="stat-label">Ausentes</div>
+                    <div className="stat-value">{classStats.absent}</div>
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-icon" style={{background: 'var(--gris-100)'}}>
+                    <ClipboardCheck size={24} color="var(--gris-500)" />
+                  </div>
+                  <div>
+                    <div className="stat-label">Sin Pasar Lista</div>
+                    <div className="stat-value">{classStats.pending}</div>
+                  </div>
+                </div>
+              </>
+            )}
+
             {viewMode === 'monthly' && monthlyStats && (
               <>
                 <div className="stat-card">
@@ -307,7 +422,11 @@ export default function Dashboard() {
           <div className="card">
             <div style={{display:'flex', flexWrap:'wrap', justifyContent:'space-between', alignItems:'center', gap:'16px', marginBottom:'16px'}}>
               <h2 className="card-title" style={{margin: 0}}>
-                {viewMode === 'daily' ? `Registros del ${new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-MX')}` : `Resumen de ${new Date(selectedMonth + '-01T12:00:00').toLocaleDateString('es-MX', {month:'long', year:'numeric'}).toUpperCase()}`}
+                {viewMode === 'monthly'
+                  ? `Resumen de ${new Date(selectedMonth + '-01T12:00:00').toLocaleDateString('es-MX', {month:'long', year:'numeric'}).toUpperCase()}`
+                  : viewMode === 'class'
+                    ? `Asistencia a clase del ${new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-MX')}`
+                    : `Registros del ${new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-MX')}`}
               </h2>
               <button className="btn btn-secondary btn-sm" onClick={() => window.print()}>
                 <Download size={14} /> Exportar Reporte
@@ -338,7 +457,7 @@ export default function Dashboard() {
                         return (
                           <tr key={s.id}>
                             <td style={{fontWeight: 500}}>{s.lastName} {s.name}</td>
-                            <td>{s.grade} {s.group}</td>
+                            <td>{s.grado} {s.nivel} {s.grupo}</td>
                             <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
                             <td>
                               <span className={`badge ${rec ? 'badge-success' : 'badge-danger'}`}>
@@ -347,6 +466,37 @@ export default function Dashboard() {
                             </td>
                             <td>{rec?.entryTime ? new Date(rec.entryTime).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}) : '—'}</td>
                             <td>{rec?.exitTime ? new Date(rec.exitTime).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}) : '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : viewMode === 'class' ? (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Alumno</th>
+                        <th>Grado / Grupo</th>
+                        <th>Plantel</th>
+                        <th>Estado en Clase</th>
+                        <th>Registrada por</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredStudents.map(s => {
+                        const rec = classRecords[s.id];
+                        const st = rec?.status;
+                        const cfg = st === 'present' ? { label: 'Presente', badge: 'badge-success' }
+                          : st === 'late' ? { label: 'Tarde', badge: 'badge-warning' }
+                          : st === 'absent' ? { label: 'Ausente', badge: 'badge-danger' }
+                          : { label: 'Sin pasar lista', badge: 'badge-info' };
+                        return (
+                          <tr key={s.id}>
+                            <td style={{fontWeight: 500}}>{s.lastName} {s.name}</td>
+                            <td>{s.grado} {s.nivel} {s.grupo}</td>
+                            <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
+                            <td><span className={`badge ${cfg.badge}`}>{cfg.label}</span></td>
+                            <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{rec?.takenByName || '—'}</td>
                           </tr>
                         );
                       })}
@@ -371,7 +521,7 @@ export default function Dashboard() {
                         return (
                           <tr key={s.id}>
                             <td style={{fontWeight: 500}}>{s.lastName} {s.name}</td>
-                            <td>{s.grade} {s.group}</td>
+                            <td>{s.grado} {s.nivel} {s.grupo}</td>
                             <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
                             <td style={{textAlign: 'center'}}>{rec.daysPresent}</td>
                             <td style={{textAlign: 'center'}}>{rec.totalDaysEvaluated}</td>

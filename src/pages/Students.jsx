@@ -3,19 +3,16 @@ import { db } from '../firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { UserPlus, Search, Download, Trash2, Edit, QrCode, X } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
-
-const plantelesConfig = {
-  'Tlalpan': ['Maternal', 'Kinder 1', 'Kinder 2', 'Kinder 3', 'Preprimaria', '1° Primaria', '2° Primaria', '3° Primaria', '4° Primaria', '5° Primaria', '6° Primaria', '1° Secundaria', '2° Secundaria', '3° Secundaria'],
-  'Coyoacán': ['Maternal', 'Kinder 1', 'Kinder 2', 'Kinder 3', 'Preprimaria', '1° Primaria', '2° Primaria', '3° Primaria', '4° Primaria', '5° Primaria', '6° Primaria'],
-  'Aztecas': ['1° Secundaria', '2° Secundaria', '3° Secundaria', '1° Bachillerato', '3° Bachillerato', '5° Bachillerato'],
-  'Xochimilco': ['1° Primaria', '2° Primaria', '3° Primaria', '4° Primaria', '5° Primaria', '6° Primaria', '1° Secundaria', '2° Secundaria', '3° Secundaria']
-};
-const planteles = Object.keys(plantelesConfig);
+import {
+  NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel,
+  makeClassId, classLabel,
+} from '../config/colegio';
 
 function generateQR() {
   return 'COC-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
 }
+
+const emptyForm = { name: '', lastName: '', plantel: '', nivel: '', grado: '', grupo: '', parentIds: [] };
 
 export default function Students() {
   const [students, setStudents] = useState([]);
@@ -26,9 +23,7 @@ export default function Students() {
   const [deleteStudent, setDeleteStudent] = useState(null);
   const [parents, setParents] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({
-    name: '', lastName: '', plantel: '', grade: '', group: '', parentIds: []
-  });
+  const [form, setForm] = useState(emptyForm);
 
   const loadStudents = async () => {
     const snap = await getDocs(collection(db, 'students'));
@@ -52,31 +47,34 @@ export default function Students() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const { plantel, nivel, grado, grupo } = form;
+    const classId = makeClassId({ plantel, nivel, grado, grupo });
+    const payload = { ...form, classId };
     try {
       if (editId) {
-        await updateDoc(doc(db, 'students', editId), form);
+        await updateDoc(doc(db, 'students', editId), payload);
       } else {
         await addDoc(collection(db, 'students'), {
-          ...form,
+          ...payload,
           qrCode: generateQR(),
           createdAt: new Date().toISOString()
         });
       }
       setShowModal(false);
       setEditId(null);
-      setForm({ name: '', lastName: '', plantel: '', grade: '', group: '', parentIds: [] });
+      setForm(emptyForm);
       loadStudents();
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); alert('Error: ' + err.message); }
   };
 
   const handleEdit = (s) => {
-    setForm({ name: s.name, lastName: s.lastName, plantel: s.plantel || '', grade: s.grade, group: s.group, parentIds: s.parentIds || [] });
+    setForm({
+      name: s.name, lastName: s.lastName,
+      plantel: s.plantel || '', nivel: s.nivel || '', grado: s.grado || '', grupo: s.grupo || '',
+      parentIds: s.parentIds || [],
+    });
     setEditId(s.id);
     setShowModal(true);
-  };
-
-  const confirmDelete = (s) => {
-    setDeleteStudent(s);
   };
 
   const handleDelete = async () => {
@@ -86,8 +84,8 @@ export default function Students() {
       await deleteDoc(doc(db, 'students', deleteStudent.id));
       setDeleteStudent(null);
       loadStudents();
-    } catch(err) {
-      alert("Error: " + err.message);
+    } catch (err) {
+      alert('Error: ' + err.message);
     }
     setLoading(false);
   };
@@ -98,7 +96,7 @@ export default function Students() {
       <html><head><title>QR - ${student.name} ${student.lastName}</title>
       <style>body{font-family:Arial;text-align:center;padding:40px;}h2{color:#722F37;}</style></head>
       <body><h2>Colegio Oliverio Cromwell</h2><h3>${student.name} ${student.lastName}</h3>
-      <p>${student.grade} ${student.group}</p>
+      <p>${student.grado || ''} ${student.nivel || ''} ${student.grupo || ''}</p>
       <div id="qr"></div>
       <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"><\/script>
       <script>QRCode.toCanvas(document.createElement('canvas'),
@@ -110,10 +108,11 @@ export default function Students() {
   };
 
   const filtered = students.filter(s =>
-    `${s.name} ${s.lastName} ${s.grade} ${s.group} ${s.plantel}`.toLowerCase().includes(search.toLowerCase())
+    `${s.name} ${s.lastName} ${s.grado} ${s.nivel} ${s.grupo} ${s.plantel}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  const availableGrades = form.plantel ? plantelesConfig[form.plantel] : [];
+  const niveles = form.plantel ? nivelesDePlantel(form.plantel) : [];
+  const grados = form.nivel ? gradosDeNivel(form.nivel) : [];
 
   return (
     <div className="page-container animate-in">
@@ -122,7 +121,7 @@ export default function Students() {
           <h1 className="page-title">Gestión de Alumnos</h1>
           <p className="page-subtitle">{students.length} alumnos registrados</p>
         </div>
-        <button onClick={() => { setEditId(null); setForm({ name:'', lastName:'', plantel:'', grade:'', group:'', parentIds:[] }); setShowModal(true); }} className="btn btn-primary">
+        <button onClick={() => { setEditId(null); setForm(emptyForm); setShowModal(true); }} className="btn btn-primary">
           <UserPlus size={16}/> Nuevo Alumno
         </button>
       </div>
@@ -143,14 +142,13 @@ export default function Students() {
         ) : (
           <div className="table-container">
             <table>
-              <thead><tr><th>Alumno</th><th>Plantel</th><th>Grado</th><th>Grupo</th><th>QR</th><th>Acciones</th></tr></thead>
+              <thead><tr><th>Alumno</th><th>Plantel</th><th>Grupo</th><th>QR</th><th>Acciones</th></tr></thead>
               <tbody>
                 {filtered.map(s => (
                   <tr key={s.id}>
                     <td style={{fontWeight:600}}>{s.lastName} {s.name}</td>
                     <td>{s.plantel || '—'}</td>
-                    <td>{s.grade}</td>
-                    <td>{s.group}</td>
+                    <td>{s.grado} {s.nivel} {s.grupo && `"${s.grupo}"`}</td>
                     <td>
                       <button onClick={() => setShowQR(s)} className="btn btn-sm btn-secondary">
                         <QrCode size={14}/> Ver QR
@@ -160,7 +158,7 @@ export default function Students() {
                       <div className="flex gap-2">
                         <button onClick={() => handleEdit(s)} className="btn btn-sm btn-secondary"><Edit size={14}/></button>
                         <button onClick={() => printQR(s)} className="btn btn-sm btn-gold"><Download size={14}/></button>
-                        <button onClick={() => confirmDelete(s)} className="btn btn-sm btn-danger"><Trash2 size={14}/></button>
+                        <button onClick={() => setDeleteStudent(s)} className="btn btn-sm btn-danger"><Trash2 size={14}/></button>
                       </div>
                     </td>
                   </tr>
@@ -183,7 +181,7 @@ export default function Students() {
               <QRCodeSVG value={showQR.qrCode} size={220} level="H" />
             </div>
             <h3 style={{marginTop:16,fontWeight:700}}>{showQR.name} {showQR.lastName}</h3>
-            <p style={{color:'var(--gris-500)'}}>{showQR.grade} {showQR.group}</p>
+            <p style={{color:'var(--gris-500)'}}>{showQR.grado} {showQR.nivel} {showQR.grupo}</p>
             <p style={{fontSize:'0.75rem',color:'var(--gris-300)',marginTop:8}}>{showQR.qrCode}</p>
             <button onClick={() => printQR(showQR)} className="btn btn-primary mt-4"><Download size={16}/> Imprimir</button>
           </div>
@@ -209,29 +207,41 @@ export default function Students() {
                   <input className="form-input" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} required />
                 </div>
               </div>
-              <div className="grid-3" style={{gridTemplateColumns: 'repeat(3, 1fr)', gap: 16}}>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:16}}>
                 <div className="form-group">
                   <label className="form-label">Plantel</label>
-                  <select className="form-select" value={form.plantel} onChange={e => setForm({...form, plantel: e.target.value, grade: ''})} required>
+                  <select className="form-select" value={form.plantel} onChange={e => setForm({...form, plantel: e.target.value, nivel: '', grado: ''})} required>
                     <option value="">Seleccionar...</option>
-                    {planteles.map(p => <option key={p} value={p}>{p}</option>)}
+                    {NOMBRE_PLANTELES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Nivel</label>
+                  <select className="form-select" value={form.nivel} onChange={e => setForm({...form, nivel: e.target.value, grado: ''})} required disabled={!form.plantel}>
+                    <option value="">{form.plantel ? 'Seleccionar...' : 'Elige plantel'}</option>
+                    {niveles.map(n => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Grado</label>
-                  <select className="form-select" value={form.grade} onChange={e => setForm({...form, grade: e.target.value})} required disabled={!form.plantel}>
-                    <option value="">{form.plantel ? 'Seleccionar...' : 'Elige un plantel primero'}</option>
-                    {availableGrades.map(g => <option key={g} value={g}>{g}</option>)}
+                  <select className="form-select" value={form.grado} onChange={e => setForm({...form, grado: e.target.value})} required disabled={!form.nivel}>
+                    <option value="">{form.nivel ? 'Seleccionar...' : 'Elige nivel'}</option>
+                    {grados.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Grupo</label>
-                  <select className="form-select" value={form.group} onChange={e => setForm({...form, group: e.target.value})} required>
+                  <select className="form-select" value={form.grupo} onChange={e => setForm({...form, grupo: e.target.value})} required>
                     <option value="">Seleccionar...</option>
-                    {['A','B','C'].map(g => <option key={g} value={g}>{g}</option>)}
+                    {GRUPOS.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
               </div>
+              {form.plantel && form.nivel && form.grado && form.grupo && (
+                <p style={{fontSize:'0.8rem', color:'var(--gris-500)', marginBottom:12}}>
+                  Grupo: <strong>{classLabel(form)}</strong>
+                </p>
+              )}
               <div className="form-group">
                 <label className="form-label">Padre/Tutor Asignado</label>
                 <select className="form-select" value={form.parentIds[0] || ''} onChange={e => setForm({...form, parentIds: e.target.value ? [e.target.value] : []})}>

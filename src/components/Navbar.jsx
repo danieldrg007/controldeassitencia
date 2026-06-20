@@ -1,18 +1,27 @@
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X } from 'lucide-react';
 import logo from '../assets/logo.jpg';
 
 export default function Navbar() {
   const { userData, logout } = useAuth();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const role = typeof userData?.role === 'string' ? userData.role.trim().toLowerCase() : '';
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
 
-  const isAdmin = userData?.role === 'admin' || userData?.role === 'guard';
+  const isSuper = role === 'superadmin';
+  const isAdmin = role === 'admin' || isSuper;
+  const isGuard = role === 'guard';
+  const isTeacher = role === 'teacher';
+
+  const linkClass = ({ isActive }) => `nav-link ${isActive ? 'active' : ''}`;
+  const closeMenu = () => setOpen(false);
 
   return (
     <nav className="navbar">
@@ -21,31 +30,46 @@ export default function Navbar() {
         <span>Control de Acceso</span>
       </a>
 
-      <div className="navbar-nav">
-        {isAdmin && (
+      <button className="navbar-toggle" onClick={() => setOpen(o => !o)} aria-label="Menú">
+        {open ? <X size={22} /> : <Menu size={22} />}
+      </button>
+
+      <div className={`navbar-nav ${open ? 'open' : ''}`} onClick={closeMenu}>
+        {(isAdmin || isGuard) && (
           <>
-            <NavLink to="/dashboard" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-              <LayoutDashboard size={16} /> Dashboard
-            </NavLink>
-            <NavLink to="/scanner" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-              <ScanLine size={16} /> Escáner
-            </NavLink>
-            <NavLink to="/students" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-              <Users size={16} /> Alumnos
-            </NavLink>
-            <NavLink to="/users" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-              <UserCog size={16} /> Padres
-            </NavLink>
+            <NavLink to="/dashboard" className={linkClass}><LayoutDashboard size={16} /> Dashboard</NavLink>
+            <NavLink to="/scanner" className={linkClass}><ScanLine size={16} /> Escáner</NavLink>
+            <NavLink to="/kiosk" className={linkClass}><Monitor size={16} /> Kiosko</NavLink>
           </>
         )}
-        {userData?.role === 'parent' && (
-          <NavLink to="/parent" className={({isActive}) => `nav-link ${isActive ? 'active' : ''}`}>
-            <UserCircle size={16} /> Mi Hijo
-          </NavLink>
+        {isAdmin && (
+          <>
+            <NavLink to="/students" className={linkClass}><Users size={16} /> Alumnos</NavLink>
+            <NavLink to="/announcements" className={linkClass}><Megaphone size={16} /> Avisos</NavLink>
+            <NavLink to="/users" className={linkClass}><UserCog size={16} /> Usuarios</NavLink>
+          </>
         )}
+        {(isTeacher || isSuper) && (
+          <NavLink to="/teacher" className={linkClass}><ClipboardCheck size={16} /> Mi Clase</NavLink>
+        )}
+        {(role === 'parent' || isSuper) && (
+          <NavLink to="/parent" className={linkClass}><UserCircle size={16} /> Mis Hijos</NavLink>
+        )}
+        {(isAdmin || isTeacher || role === 'parent') && (
+          <NavLink to="/messages" className={linkClass}><MessageCircle size={16} /> Mensajes</NavLink>
+        )}
+
+        {/* Usuario + salir dentro del menú colapsable en móvil */}
+        <div className="navbar-user navbar-user--menu">
+          <span>{userData?.displayName || 'Usuario'}</span>
+          <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.15)', color:'#fff'}} title="Cerrar sesión">
+            <LogOut size={18} />
+          </button>
+        </div>
       </div>
 
-      <div className="navbar-user">
+      {/* Usuario visible en escritorio (fuera del menú) */}
+      <div className="navbar-user navbar-user--bar">
         <span>{userData?.displayName || 'Usuario'}</span>
         <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.15)', color:'#fff'}} title="Cerrar sesión">
           <LogOut size={18} />

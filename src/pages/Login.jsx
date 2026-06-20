@@ -5,9 +5,11 @@ import { Eye, EyeOff } from 'lucide-react';
 import logo from '../assets/logo.jpg';
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [isRegister, setIsRegister] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,11 +28,32 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      if (isRegister) {
+        await register(email, password, {
+          displayName: displayName.trim() || email,
+          role: 'parent'
+        });
+      } else {
+        await login(email, password);
+      }
     } catch (err) {
-      setError('Credenciales incorrectas. Intente de nuevo.');
+      console.error(err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('Ese correo ya existe. Cambia a Iniciar Sesión o usa otro correo.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('La contraseña debe tener al menos 6 caracteres.');
+      } else if (err.code === 'permission-denied') {
+        setError('La cuenta se creó en Auth, pero Firestore no permitió guardar el perfil. Revisa las reglas.');
+      } else {
+        setError(isRegister ? 'No se pudo crear la cuenta.' : 'Credenciales incorrectas. Intente de nuevo.');
+      }
     }
     setLoading(false);
+  };
+
+  const toggleMode = () => {
+    setError('');
+    setIsRegister(value => !value);
   };
 
   return (
@@ -44,6 +67,13 @@ export default function Login() {
           {error && (
             <div style={{background:'var(--danger-bg)',color:'var(--danger)',padding:'10px 14px',borderRadius:'var(--radius-sm)',marginBottom:16,fontSize:'0.85rem',fontWeight:500}}>
               {error}
+            </div>
+          )}
+
+          {isRegister && (
+            <div className="form-group" style={{textAlign:'left'}}>
+              <label className="form-label">Nombre completo</label>
+              <input className="form-input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Tu nombre" required />
             </div>
           )}
 
@@ -61,7 +91,11 @@ export default function Login() {
           </div>
 
           <button type="submit" className="btn btn-primary btn-lg w-full" disabled={loading} style={{marginTop:8}}>
-            {loading ? 'Ingresando...' : 'Iniciar Sesión'}
+            {loading ? (isRegister ? 'Creando cuenta...' : 'Ingresando...') : (isRegister ? 'Crear Cuenta' : 'Iniciar Sesión')}
+          </button>
+
+          <button type="button" onClick={toggleMode} className="btn btn-secondary w-full" disabled={loading} style={{marginTop:12}}>
+            {isRegister ? 'Ya tengo cuenta' : 'Crear cuenta rápida'}
           </button>
         </form>
       </div>
