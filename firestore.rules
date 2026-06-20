@@ -91,10 +91,15 @@ service cloud.firestore {
 
     // ---------------- STUDENTS ----------------
     match /students/{studentId} {
+      // IMPORTANTE para consultas (list):
+      // 1) NO usar "resource.data.parentIds is list" (ese type-check rompe el array-contains).
+      // 2) Las ramas por rol (sin resource.data) van PRIMERO; las que leen resource.data
+      //    van al final, así cada consulta corta en una rama segura antes de tocar un
+      //    campo que podría no estar garantizado por la query.
       allow read: if signedIn() && (
         canScan() ||
-        isAssignedParent(resource.data) ||
-        (isTeacher() && teacherOwnsClass(resource.data.classId))
+        (isTeacher() && teacherOwnsClass(resource.data.classId)) ||
+        request.auth.uid in resource.data.parentIds
       );
 
       allow create: if signedIn() && (
