@@ -68,7 +68,7 @@ export default function Announcements() {
         <p className="page-subtitle">Publica avisos para todo el colegio, por plantel o por grupo</p>
       </div>
 
-      <div style={{display:'grid', gridTemplateColumns:'minmax(320px, 420px) 1fr', gap:24, alignItems:'start'}}>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:24, alignItems:'start'}}>
         <div className="card">
           <h3 className="card-title" style={{marginBottom:16}}><Megaphone size={18} style={{verticalAlign:'middle', marginRight:6}}/> Nuevo aviso</h3>
           <form onSubmit={submit}>
@@ -118,9 +118,9 @@ export default function Announcements() {
           ) : (
             <div className="flex flex-col gap-3">
               {list.map(a => (
-                <div key={a.id} style={{padding:14, border:'1px solid var(--gris-200)', borderRadius:'var(--radius-sm)'}}>
-                  <div className="flex justify-between items-center" style={{marginBottom:6}}>
-                    <strong>{a.title}</strong>
+                <div key={a.id} style={{padding:14, border:'1px solid var(--gris-200)', borderLeft:'4px solid var(--guinda)', borderRadius:'var(--radius-sm)'}}>
+                  <div className="flex justify-between items-center" style={{marginBottom:6, gap:8}}>
+                    <strong style={{display:'flex', alignItems:'center', gap:8}}><Megaphone size={15} color="var(--guinda)"/> {a.title}</strong>
                     <span className="badge badge-info">{a.scopeLabel}</span>
                   </div>
                   <p style={{fontSize:'0.9rem', color:'var(--gris-700)', whiteSpace:'pre-wrap'}}>{a.body}</p>

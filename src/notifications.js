@@ -7,12 +7,16 @@ import { db, getMessagingInstance } from './firebase';
 // Cloud Messaging → "Certificados push web". Ponla en .env como VITE_FCM_VAPID_KEY.
 const VAPID_KEY = import.meta.env.VITE_FCM_VAPID_KEY || '';
 
-let swRegistration = null;
+// Registra el service worker de FCM y ESPERA a que esté activo.
+// pushManager.subscribe() (dentro de getToken) falla con AbortError
+// "no active Service Worker" si se llama antes de que el SW se active.
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return null;
-  if (swRegistration) return swRegistration;
-  swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-  return swRegistration;
+  const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+  // navigator.serviceWorker.ready resuelve cuando hay un SW activo en el scope.
+  await navigator.serviceWorker.ready;
+  // Si por carrera 'ready' resolvió con otro registro, devolvemos el activo correcto.
+  return registration.active ? registration : (await navigator.serviceWorker.ready);
 }
 
 // Pide permiso, obtiene el token FCM y lo guarda en users/{uid}.fcmTokens.
@@ -33,8 +37,16 @@ export async function enablePushNotifications(uid) {
     await updateDoc(doc(db, 'users', uid), { fcmTokens: arrayUnion(token) });
     return { ok: true, token };
   } catch (e) {
-    console.error('enablePushNotifications', e);
-    return { ok: false, error: e.message };
+    // Errores del servicio de push del navegador (no de la app): suelen ocurrir en
+    // escritorios sin servicios de Google, navegadores/redes que bloquean el push,
+    // modo incógnito o iOS sin la app instalada en la pantalla de inicio.
+    const isPushServiceError = e?.name === 'AbortError' || /push service|Registration failed|no active Service Worker/i.test(e?.message || '');
+    if (isPushServiceError) {
+      console.warn('Push no disponible en este navegador/dispositivo:', e?.message || e);
+      return { ok: false, error: 'Tu navegador o dispositivo no permitió activar las notificaciones push. Prueba en otro navegador o, en iPhone, agrega la app a la pantalla de inicio.' };
+    }
+    console.warn('enablePushNotifications:', e?.message || e);
+    return { ok: false, error: e?.message || 'No se pudieron activar las notificaciones.' };
   }
 }
 

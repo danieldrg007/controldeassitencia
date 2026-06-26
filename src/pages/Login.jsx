@@ -63,6 +63,11 @@ export default function Login() {
         <h1 className="login-title">Control de Acceso</h1>
         <p className="login-subtitle">Colegio Oliverio Cromwell</p>
 
+        <div className="seg seg-full" style={{marginBottom:20}}>
+          <button type="button" className={!isRegister ? 'active' : ''} onClick={() => { if (isRegister) toggleMode(); }} disabled={loading}>Iniciar sesión</button>
+          <button type="button" className={isRegister ? 'active' : ''} onClick={() => { if (!isRegister) toggleMode(); }} disabled={loading}>Crear cuenta</button>
+        </div>
+
         <form onSubmit={handleSubmit}>
           {error && (
             <div style={{background:'var(--danger-bg)',color:'var(--danger)',padding:'10px 14px',borderRadius:'var(--radius-sm)',marginBottom:16,fontSize:'0.85rem',fontWeight:500}}>
@@ -92,10 +97,6 @@ export default function Login() {
 
           <button type="submit" className="btn btn-primary btn-lg w-full" disabled={loading} style={{marginTop:8}}>
             {loading ? (isRegister ? 'Creando cuenta...' : 'Ingresando...') : (isRegister ? 'Crear Cuenta' : 'Iniciar Sesión')}
-          </button>
-
-          <button type="button" onClick={toggleMode} className="btn btn-secondary w-full" disabled={loading} style={{marginTop:12}}>
-            {isRegister ? 'Ya tengo cuenta' : 'Crear cuenta rápida'}
           </button>
         </form>
       </div>

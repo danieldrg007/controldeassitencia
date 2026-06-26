@@ -60,12 +60,12 @@ export default function Kiosk() {
       for (const parentId of (student.parentIds || [])) {
         const pSnap = await getDoc(doc(db, 'users', parentId));
         if (pSnap.exists()) {
-          people.push({ id: `parent-${parentId}`, name: pSnap.data().displayName || 'Padre/Tutor', relation: 'Titular', passCode: null });
+          people.push({ id: `parent-${parentId}`, name: pSnap.data().displayName || 'Padre/Tutor', relation: 'Titular', passCode: null, photo: pSnap.data().photo || null });
         }
         const fSnap = await getDocs(collection(db, 'users', parentId, 'familyMembers'));
         fSnap.forEach(d => {
           const m = d.data();
-          if (m.active !== false) people.push({ id: d.id, name: m.name, relation: m.relation, passCode: m.passCode || null });
+          if (m.active !== false) people.push({ id: d.id, name: m.name, relation: m.relation, passCode: m.passCode || null, photo: m.photo || null });
         });
       }
     } catch (e) { console.error('Error cargando autorizados', e); }
@@ -260,8 +260,13 @@ export default function Kiosk() {
             {authorized.map(p => (
               <button key={p.id} onClick={() => confirmExit(p)}
                 className="btn"
-                style={{background:'#fff',color:'var(--gris-900)',fontSize:'1.1rem',padding:'16px 22px',borderRadius:12,display:'flex',flexDirection:'column',gap:4,minWidth:180}}>
-                <span style={{display:'flex',alignItems:'center',gap:8,fontWeight:700}}><User size={18}/> {p.name}</span>
+                style={{background:'#fff',color:'var(--gris-900)',fontSize:'1.1rem',padding:'16px 22px',borderRadius:12,display:'flex',flexDirection:'column',alignItems:'center',gap:8,minWidth:180}}>
+                {p.photo ? (
+                  <img src={p.photo} alt="" style={{width:72,height:72,borderRadius:'50%',objectFit:'cover'}} />
+                ) : (
+                  <span style={{width:72,height:72,borderRadius:'50%',background:'var(--gris-200)',display:'flex',alignItems:'center',justifyContent:'center'}}><User size={30}/></span>
+                )}
+                <span style={{display:'flex',alignItems:'center',gap:8,fontWeight:700}}>{p.name}</span>
                 <span style={{fontSize:'0.8rem',opacity:0.7}}>{p.relation}</span>
               </button>
             ))}

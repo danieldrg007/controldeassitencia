@@ -194,6 +194,15 @@
   .avatar-lg { @apply w-16 h-16; }
   .avatar-xl { @apply w-[100px] h-[100px]; border: 3px solid var(--accent); }
 
+  /* Control segmentado (toggle tipo pill) */
+  .seg { @apply inline-flex gap-1 p-1 rounded-full; background: var(--surface-hover); border: 1px solid var(--surface-border); }
+  .seg button {
+    @apply flex-1 border-0 px-4 py-2 rounded-full font-semibold text-[0.85rem] cursor-pointer whitespace-nowrap transition-all;
+    background: transparent; color: var(--text-muted);
+  }
+  .seg button.active { background: var(--brand); color: #fff; box-shadow: var(--shadow-sm); }
+  .seg-full { @apply flex w-full; }
+
   /* Tabs */
   .tabs { @apply flex gap-1 mb-6; border-bottom: 2px solid var(--surface-border); }
   .tab { @apply px-5 py-2.5 text-[0.875rem] font-semibold cursor-pointer bg-transparent border-0 transition-all; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px; }
@@ -289,6 +298,50 @@
 @media (max-width: 560px) {
   .page-header.flex { flex-direction: column; align-items: stretch; }
   .page-header.flex .btn { width: 100%; }
+}
+
+/* ============================================================
+   Portal de Padres: encabezado y navegación inferior (estilo app móvil)
+   ============================================================ */
+.pp-header {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 20px;
+}
+.pp-hello { font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
+.pp-name { font-size: 1.4rem; font-weight: 800; color: var(--text-main); line-height: 1.15; }
+
+/* Tabs superiores: visibles en escritorio, ocultas en móvil (se usa la barra inferior) */
+.pp-bottomnav { display: none; }
+
+@media (max-width: 768px) {
+  .pp-tabs-top { display: none !important; }
+
+  .pp-bottomnav {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 200;
+    background: var(--surface-card);
+    border-top: 1px solid var(--surface-border);
+    box-shadow: 0 -2px 14px rgba(135,36,52,0.10);
+    padding: 6px 4px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
+  }
+  .pp-bottomnav .pp-tab {
+    flex: 1; background: transparent; border: 0; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 6px 2px; color: var(--text-muted);
+    font-size: 0.68rem; font-weight: 600; position: relative;
+    transition: color 0.15s ease;
+  }
+  .pp-bottomnav .pp-tab.active { color: var(--brand); }
+  .pp-bottomnav .pp-tab .pp-tab-dot {
+    position: absolute; top: 2px; right: calc(50% - 18px);
+    min-width: 16px; height: 16px; border-radius: 999px; padding: 0 4px;
+    background: var(--danger); color: #fff; font-size: 0.6rem; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Deja espacio para que la barra inferior no tape el contenido */
+  .pp-page { padding-bottom: 84px; }
+  .pp-header { margin-bottom: 14px; }
+  .pp-name { font-size: 1.2rem; }
 }
 
 /* Filas de pase de lista (profesor) */

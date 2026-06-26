@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
-import { UserPlus, Search, Download, Trash2, Edit, QrCode, X } from 'lucide-react';
+import { UserPlus, Search, Download, Trash2, Edit, QrCode, X, Upload, Mail, Phone } from 'lucide-react';
 import {
   NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel,
   makeClassId, classLabel,
 } from '../config/colegio';
+import Avatar from '../components/Avatar';
 
 function generateQR() {
   return 'COC-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
@@ -24,6 +25,8 @@ export default function Students() {
   const [parents, setParents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [importPreview, setImportPreview] = useState(null); // { items:[{a,curp,exists}], fileName }
+  const [importing, setImporting] = useState(false);
 
   const loadStudents = async () => {
     const snap = await getDocs(collection(db, 'students'));
@@ -107,9 +110,57 @@ export default function Students() {
     `);
   };
 
+  // Lee el archivo exportado por Inscripciones y arma la vista previa (con dedupe por CURP).
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const alumnos = Array.isArray(data) ? data : (data.alumnos || []);
+      if (!alumnos.length) { alert('El archivo no contiene alumnos.'); return; }
+      const existingCurps = new Set(students.map(s => (s.curp || '').toUpperCase()).filter(Boolean));
+      const seen = new Set();
+      const items = alumnos.map(a => {
+        const curp = (a.curp || '').toUpperCase().trim();
+        const dupInFile = curp && seen.has(curp);
+        if (curp) seen.add(curp);
+        return { a, curp, exists: (curp && existingCurps.has(curp)) || dupInFile };
+      });
+      setImportPreview({ items, fileName: file.name });
+    } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview) return;
+    const toCreate = importPreview.items.filter(it => !it.exists);
+    if (toCreate.length === 0) { alert('No hay alumnos nuevos para importar (todos ya existen).'); return; }
+    setImporting(true);
+    try {
+      await Promise.all(toCreate.map(it => {
+        const a = it.a;
+        return addDoc(collection(db, 'students'), {
+          name: a.name || '', lastName: a.lastName || '',
+          plantel: a.plantel || '', nivel: a.nivel || '', grado: a.grado || '',
+          grupo: '', classId: '', parentIds: [],
+          qrCode: generateQR(),
+          curp: it.curp || '', tutor: a.tutor || null, inscripcionId: a.inscripcionId || '',
+          source: 'inscripciones',
+          createdAt: new Date().toISOString(),
+        });
+      }));
+      const n = toCreate.length;
+      setImportPreview(null);
+      await loadStudents();
+      alert(`${n} alumno(s) importado(s). Ahora asígnales su grupo y tutor desde la lista.`);
+    } catch (err) { alert('Error al importar: ' + err.message); }
+    setImporting(false);
+  };
+
   const filtered = students.filter(s =>
     `${s.name} ${s.lastName} ${s.grado} ${s.nivel} ${s.grupo} ${s.plantel}`.toLowerCase().includes(search.toLowerCase())
   );
+  const editingTutor = editId ? students.find(s => s.id === editId)?.tutor : null;
 
   const niveles = form.plantel ? nivelesDePlantel(form.plantel) : [];
   const grados = form.nivel ? gradosDeNivel(form.nivel) : [];
@@ -121,9 +172,15 @@ export default function Students() {
           <h1 className="page-title">Gestión de Alumnos</h1>
           <p className="page-subtitle">{students.length} alumnos registrados</p>
         </div>
-        <button onClick={() => { setEditId(null); setForm(emptyForm); setShowModal(true); }} className="btn btn-primary">
-          <UserPlus size={16}/> Nuevo Alumno
-        </button>
+        <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+          <label className="btn btn-secondary" style={{cursor:'pointer'}} title="Importar alumnos exportados desde Inscripciones">
+            <Upload size={16}/> <span>Importar</span>
+            <input type="file" accept="application/json,.json" hidden onChange={handleImportFile} />
+          </label>
+          <button onClick={() => { setEditId(null); setForm(emptyForm); setShowModal(true); }} className="btn btn-primary">
+            <UserPlus size={16}/> <span>Nuevo Alumno</span>
+          </button>
+        </div>
       </div>
 
       <div className="card mb-4">
@@ -146,7 +203,12 @@ export default function Students() {
               <tbody>
                 {filtered.map(s => (
                   <tr key={s.id}>
-                    <td style={{fontWeight:600}}>{s.lastName} {s.name}</td>
+                    <td>
+                      <div style={{display:'flex', alignItems:'center', gap:10}}>
+                        <Avatar name={s.name} size={34} />
+                        <span style={{fontWeight:600}}>{s.lastName} {s.name}</span>
+                      </div>
+                    </td>
                     <td>{s.plantel || '—'}</td>
                     <td>{s.grado} {s.nivel} {s.grupo && `"${s.grupo}"`}</td>
                     <td>
@@ -168,6 +230,50 @@ export default function Students() {
           </div>
         )}
       </div>
+
+      {/* Modal vista previa de importación */}
+      {importPreview && (
+        <div className="modal-overlay" onClick={() => !importing && setImportPreview(null)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Importar alumnos inscritos</h3>
+              <button className="modal-close" onClick={() => !importing && setImportPreview(null)}><X size={16}/></button>
+            </div>
+            {(() => {
+              const nuevos = importPreview.items.filter(i => !i.exists).length;
+              const repetidos = importPreview.items.length - nuevos;
+              return (
+                <>
+                  <div className="flex gap-2" style={{marginBottom:12, flexWrap:'wrap'}}>
+                    <span className="badge badge-success">{nuevos} nuevos</span>
+                    {repetidos > 0 && <span className="badge badge-warning">{repetidos} ya existen (se omiten)</span>}
+                  </div>
+                  <div className="table-container" style={{maxHeight:340, overflowY:'auto'}}>
+                    <table>
+                      <thead><tr><th>Alumno</th><th>Plantel</th><th>Nivel / Grado</th><th>Estado</th></tr></thead>
+                      <tbody>
+                        {importPreview.items.map((it, i) => (
+                          <tr key={i} style={{opacity: it.exists ? 0.5 : 1}}>
+                            <td style={{fontWeight:600}}>{it.a.lastName} {it.a.name}</td>
+                            <td>{it.a.plantel || '—'}</td>
+                            <td>{it.a.nivel} {it.a.grado}</td>
+                            <td>{it.exists ? <span className="badge badge-warning">Ya existe</span> : <span className="badge badge-success">Nuevo</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p style={{fontSize:'0.78rem', color:'var(--gris-500)', marginTop:10}}>Se importan sin grupo ni tutor; los asignas después desde la lista. Los repetidos (por CURP) se omiten.</p>
+                  <div className="modal-footer">
+                    <button onClick={() => setImportPreview(null)} className="btn btn-secondary" disabled={importing}>Cancelar</button>
+                    <button onClick={confirmImport} className="btn btn-primary" disabled={importing || nuevos === 0}>{importing ? 'Importando…' : `Importar ${nuevos} alumno(s)`}</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* QR Modal */}
       {showQR && (
@@ -241,6 +347,19 @@ export default function Students() {
                 <p style={{fontSize:'0.8rem', color:'var(--gris-500)', marginBottom:12}}>
                   Grupo: <strong>{classLabel(form)}</strong>
                 </p>
+              )}
+              {editingTutor && (editingTutor.nombrePadre || editingTutor.nombreMadre) && (
+                <div style={{background:'var(--surface-hover)', border:'1px solid var(--surface-border)', borderRadius:'var(--radius-sm)', padding:12, marginBottom:12}}>
+                  <p style={{fontSize:'0.75rem', fontWeight:700, color:'var(--guinda)', marginBottom:6, textTransform:'uppercase'}}>Tutor (datos de inscripción)</p>
+                  {[['Padre', editingTutor.nombrePadre, editingTutor.correoPadre, editingTutor.celPadre], ['Madre', editingTutor.nombreMadre, editingTutor.correoMadre, editingTutor.celMadre]].map(([rol, nom, mail, cel]) => nom ? (
+                    <div key={rol} style={{fontSize:'0.8rem', color:'var(--gris-600)', marginBottom:4}}>
+                      <strong>{rol}:</strong> {nom}
+                      {mail && <span style={{display:'inline-flex', alignItems:'center', gap:3, marginLeft:8}}><Mail size={12}/> {mail}</span>}
+                      {cel && <span style={{display:'inline-flex', alignItems:'center', gap:3, marginLeft:8}}><Phone size={12}/> {cel}</span>}
+                    </div>
+                  ) : null)}
+                  <p style={{fontSize:'0.72rem', color:'var(--gris-500)', marginTop:4}}>Crea/elige la cuenta de este tutor abajo para ligarlo al alumno.</p>
+                </div>
               )}
               <div className="form-group">
                 <label className="form-label">Padre/Tutor Asignado</label>

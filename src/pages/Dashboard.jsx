@@ -218,43 +218,10 @@ export default function Dashboard() {
           <h1 className="page-title">Dashboard Analítico</h1>
           <p className="page-subtitle">Estadísticas y reportes de asistencia</p>
         </div>
-        <div style={{display:'flex', gap:'8px', background:'white', padding:'4px', borderRadius:'var(--radius-md)', border:'1px solid var(--gris-200)', flexWrap:'wrap'}}>
-          <button 
-            className="btn"
-            style={{
-              background: viewMode === 'daily' ? 'var(--guinda)' : 'transparent', 
-              color: viewMode === 'daily' ? 'white' : 'var(--gris-600)',
-              border: 'none',
-              boxShadow: 'none'
-            }}
-            onClick={() => setViewMode('daily')}
-          >
-            Vista Diaria
-          </button>
-          <button
-            className="btn"
-            style={{
-              background: viewMode === 'class' ? 'var(--guinda)' : 'transparent',
-              color: viewMode === 'class' ? 'white' : 'var(--gris-600)',
-              border: 'none',
-              boxShadow: 'none'
-            }}
-            onClick={() => setViewMode('class')}
-          >
-            Asistencia a Clase
-          </button>
-          <button
-            className="btn"
-            style={{
-              background: viewMode === 'monthly' ? 'var(--guinda)' : 'transparent',
-              color: viewMode === 'monthly' ? 'white' : 'var(--gris-600)',
-              border: 'none',
-              boxShadow: 'none'
-            }}
-            onClick={() => setViewMode('monthly')}
-          >
-            Reporte Mensual
-          </button>
+        <div className="seg" style={{flexWrap:'wrap'}}>
+          <button type="button" className={viewMode === 'daily' ? 'active' : ''} onClick={() => setViewMode('daily')}>Vista Diaria</button>
+          <button type="button" className={viewMode === 'class' ? 'active' : ''} onClick={() => setViewMode('class')}>Asistencia a Clase</button>
+          <button type="button" className={viewMode === 'monthly' ? 'active' : ''} onClick={() => setViewMode('monthly')}>Reporte Mensual</button>
         </div>
       </div>
 

@@ -14,6 +14,7 @@ const TeacherDashboard = lazy(() => import('./pages/TeacherDashboard'));
 const Kiosk = lazy(() => import('./pages/Kiosk'));
 const Announcements = lazy(() => import('./pages/Announcements'));
 const Messages = lazy(() => import('./pages/Messages'));
+const Subjects = lazy(() => import('./pages/Subjects'));
 
 const FallbackLoader = () => (
   <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh'}}>
@@ -93,6 +94,9 @@ function AppRoutes() {
         } />
         <Route path="/announcements" element={
           <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><Announcements /></ProtectedRoute>
+        } />
+        <Route path="/subjects" element={
+          <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><Subjects /></ProtectedRoute>
         } />
 
         {/* Modo kiosko: sin navbar, pantalla completa. Cuenta dedicada (rol kiosk) o staff. */}

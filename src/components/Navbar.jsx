@@ -3,8 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X } from 'lucide-react';
+import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X, BookOpen } from 'lucide-react';
 import logo from '../assets/logo.jpg';
+import NotificationBell from './NotificationBell';
 
 export default function Navbar() {
   const { user, userData, logout } = useAuth();
@@ -52,10 +53,6 @@ export default function Navbar() {
         <span>Control de Acceso</span>
       </a>
 
-      <button className="navbar-toggle" onClick={() => setOpen(o => !o)} aria-label="Menú">
-        {open ? <X size={22} /> : <Menu size={22} />}
-      </button>
-
       <div className={`navbar-nav ${open ? 'open' : ''}`} onClick={closeMenu}>
         {(isAdmin || isGuard) && (
           <>
@@ -67,6 +64,7 @@ export default function Navbar() {
         {isAdmin && (
           <>
             <NavLink to="/students" className={linkClass}><Users size={16} /> Alumnos</NavLink>
+            <NavLink to="/subjects" className={linkClass}><BookOpen size={16} /> Materias</NavLink>
             <NavLink to="/announcements" className={linkClass}><Megaphone size={16} /> Avisos</NavLink>
             <NavLink to="/users" className={linkClass}><UserCog size={16} /> Usuarios</NavLink>
           </>
@@ -97,11 +95,19 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Usuario visible en escritorio (fuera del menú) */}
-      <div className="navbar-user navbar-user--bar">
-        <span>{userData?.displayName || 'Usuario'}</span>
-        <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.15)', color:'#fff'}} title="Cerrar sesión">
-          <LogOut size={18} />
+      {/* Acciones de la derecha: campanita (siempre), usuario (escritorio) y menú (móvil) */}
+      <div className="navbar-actions" style={{display:'flex', alignItems:'center', gap:8}}>
+        <NotificationBell unread={unread} hasChat={hasChat} />
+
+        <div className="navbar-user navbar-user--bar">
+          <span>{userData?.displayName || 'Usuario'}</span>
+          <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.15)', color:'#fff'}} title="Cerrar sesión">
+            <LogOut size={18} />
+          </button>
+        </div>
+
+        <button className="navbar-toggle" onClick={() => setOpen(o => !o)} aria-label="Menú">
+          {open ? <X size={22} /> : <Menu size={22} />}
         </button>
       </div>
     </nav>

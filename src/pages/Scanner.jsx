@@ -15,6 +15,7 @@ export default function Scanner() {
   const [loadingPeople, setLoadingPeople] = useState(false);
   const [groupPickup, setGroupPickup] = useState(null); // { person, code, items }
   const [groupLoading, setGroupLoading] = useState(false);
+  const [zoom, setZoom] = useState(null); // foto ampliada para verificar identidad
 
   const html5QrRef = useRef(null);
   const scanModeRef = useRef('student'); // 'student' | 'pass'
@@ -170,12 +171,12 @@ export default function Scanner() {
       for (const parentId of (student.parentIds || [])) {
         const pSnap = await getDoc(doc(db, 'users', parentId));
         if (pSnap.exists()) {
-          people.push({ id: `parent-${parentId}`, name: pSnap.data().displayName || 'Padre/Tutor', relation: 'Titular', passCode: null });
+          people.push({ id: `parent-${parentId}`, name: pSnap.data().displayName || 'Padre/Tutor', relation: 'Titular', passCode: null, photo: pSnap.data().photo || null });
         }
         const fSnap = await getDocs(collection(db, 'users', parentId, 'familyMembers'));
         fSnap.forEach(d => {
           const m = d.data();
-          if (m.active !== false) people.push({ id: d.id, name: m.name, relation: m.relation, passCode: m.passCode || null });
+          if (m.active !== false) people.push({ id: d.id, name: m.name, relation: m.relation, passCode: m.passCode || null, photo: m.photo || null });
         });
       }
     } catch (e) { console.error('Error cargando autorizados', e); }
@@ -353,7 +354,15 @@ export default function Scanner() {
                 {authorized.map(p => (
                   <button key={p.id} onClick={() => confirmExit(p)}
                     className="btn btn-secondary" style={{justifyContent:'space-between'}}>
-                    <span style={{display:'flex', alignItems:'center', gap:8}}><User size={16}/> {p.name}</span>
+                    <span style={{display:'flex', alignItems:'center', gap:10}}>
+                      {p.photo ? (
+                        <img src={p.photo} alt="" onClick={(e) => { e.stopPropagation(); setZoom(p.photo); }}
+                          style={{width:40, height:40, borderRadius:'50%', objectFit:'cover', border:'2px solid var(--gris-200)'}} />
+                      ) : (
+                        <span style={{width:40, height:40, borderRadius:'50%', background:'var(--gris-200)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0}}><User size={18}/></span>
+                      )}
+                      {p.name}
+                    </span>
                     <span className="badge badge-gold">{p.relation}</span>
                   </button>
                 ))}
@@ -463,6 +472,16 @@ export default function Scanner() {
           </div>
         )}
       </div>
+
+      {/* Visor de foto ampliada para verificar a quien recoge */}
+      {zoom && (
+        <div onClick={() => setZoom(null)}
+          style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.92)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:3000, cursor:'zoom-out', padding:24}}>
+          <img src={zoom} alt="" style={{maxWidth:'95vw', maxHeight:'90vh', borderRadius:12, boxShadow:'0 10px 40px rgba(0,0,0,0.5)'}} />
+          <button onClick={() => setZoom(null)}
+            style={{position:'absolute', top:20, right:20, background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', borderRadius:'50%', width:44, height:44, fontSize:20, cursor:'pointer'}}>✕</button>
+        </div>
+      )}
     </div>
   );
 }

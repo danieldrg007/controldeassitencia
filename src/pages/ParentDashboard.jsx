@@ -4,19 +4,29 @@ import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, delet
 import { updateEmail, updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
-import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock } from 'lucide-react';
+import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock, Camera, Pencil, RefreshCw, StickyNote, GraduationCap } from 'lucide-react';
 import {
   NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel, makeClassId,
 } from '../config/colegio';
 import { enablePushNotifications, listenForegroundMessages } from '../notifications';
+import { forceUpdate } from '../utils/version';
+import { fileToResizedDataURL } from '../utils/image';
+import Avatar from '../components/Avatar';
+import logo from '../assets/logo.jpg';
 
 function generateQR(prefix = 'COC') {
   return prefix + '-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 7).toUpperCase();
 }
 
 const RELACIONES = ['Madre', 'Padre', 'Abuelo/a', 'Tío/a', 'Hermano/a mayor', 'Chofer', 'Otro'];
+const NOTE_CATS = {
+  conducta:  { label: 'Conducta',  badge: 'badge-warning' },
+  academica: { label: 'Académica', badge: 'badge-info' },
+  tarea:     { label: 'Tarea',     badge: 'badge-danger' },
+  positiva:  { label: 'Positiva',  badge: 'badge-success' },
+};
 const emptyStudent = { name: '', lastName: '', plantel: '', nivel: '', grado: '', grupo: '' };
-const emptyMember = { name: '', relation: 'Madre', phone: '' };
+const emptyMember = { name: '', relation: 'Madre', phone: '', photo: '' };
 
 export default function ParentDashboard() {
   const { user, userData } = useAuth();
@@ -32,11 +42,20 @@ export default function ParentDashboard() {
   const [copied, setCopied] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [activeTab, setActiveTab] = useState('status');
+  const [teacherNotes, setTeacherNotes] = useState([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [grades, setGrades] = useState([]);
+  const [gradesLoading, setGradesLoading] = useState(false);
 
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [showMember, setShowMember] = useState(false);
+  const [editingMemberId, setEditingMemberId] = useState(null);
   const [showQR, setShowQR] = useState(null);
   const [showPass, setShowPass] = useState(null);
+  const [lightbox, setLightbox] = useState(null); // dataURL de la foto a ampliar (estilo WhatsApp)
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [myPhoto, setMyPhoto] = useState(userData?.photo || '');
+  const [updating, setUpdating] = useState(false);
 
   const [studentForm, setStudentForm] = useState(emptyStudent);
   const [memberForm, setMemberForm] = useState(emptyMember);
@@ -157,6 +176,45 @@ export default function ParentDashboard() {
     return unsub;
   }, [selectedStudent, today]);
 
+  // Notas/observaciones del profesor visibles para el tutor (del alumno seleccionado)
+  useEffect(() => {
+    if (!selectedStudent) { setTeacherNotes([]); return; }
+    let active = true;
+    (async () => {
+      setNotesLoading(true);
+      try {
+        const snap = await getDocs(query(
+          collection(db, 'observations'),
+          where('studentId', '==', selectedStudent.id),
+          where('visibleToParent', '==', true),
+        ));
+        const arr = [];
+        snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+        arr.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        if (active) setTeacherNotes(arr);
+      } catch (e) { console.error('Error notas del profesor', e); if (active) setTeacherNotes([]); }
+      if (active) setNotesLoading(false);
+    })();
+    return () => { active = false; };
+  }, [selectedStudent]);
+
+  // Calificaciones del alumno seleccionado
+  useEffect(() => {
+    if (!selectedStudent) { setGrades([]); return; }
+    let active = true;
+    (async () => {
+      setGradesLoading(true);
+      try {
+        const snap = await getDocs(query(collection(db, 'grades'), where('studentId', '==', selectedStudent.id)));
+        const arr = [];
+        snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+        if (active) setGrades(arr);
+      } catch (e) { console.error('Error calificaciones', e); if (active) setGrades([]); }
+      if (active) setGradesLoading(false);
+    })();
+    return () => { active = false; };
+  }, [selectedStudent]);
+
   // Notificaciones push
   useEffect(() => {
     if (!user) return;
@@ -211,18 +269,61 @@ export default function ParentDashboard() {
     setLoading(false);
   };
 
+  const openAddMember = () => { setMemberForm(emptyMember); setEditingMemberId(null); setShowMember(true); };
+  const openEditMember = (m) => {
+    setMemberForm({ name: m.name || '', relation: m.relation || 'Madre', phone: m.phone || '', photo: m.photo || '' });
+    setEditingMemberId(m.id);
+    setShowMember(true);
+  };
+  const closeMember = () => { setShowMember(false); setEditingMemberId(null); setMemberForm(emptyMember); };
+
+  // Procesa la foto elegida (familiar): la redimensiona en el navegador y la deja en el formulario.
+  const handleMemberPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const url = await fileToResizedDataURL(file);
+      setMemberForm(f => ({ ...f, photo: url }));
+    } catch (err) { alert(err.message || 'No se pudo procesar la imagen.'); }
+    setPhotoBusy(false);
+  };
+
+  // Foto del propio padre/tutor (titular): se guarda en su documento de usuario.
+  const handleMyPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const url = await fileToResizedDataURL(file);
+      await updateDoc(doc(db, 'users', user.uid), { photo: url });
+      setMyPhoto(url);
+    } catch (err) { alert(err.message || 'No se pudo guardar la foto.'); }
+    setPhotoBusy(false);
+  };
+
   const handleSaveMember = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await addDoc(collection(db, 'users', user.uid, 'familyMembers'), {
-        ...memberForm,
-        passCode: generateQR('PASS'),
-        active: true,
-        createdAt: new Date().toISOString(),
-      });
-      setShowMember(false);
-      setMemberForm(emptyMember);
+      if (editingMemberId) {
+        await updateDoc(doc(db, 'users', user.uid, 'familyMembers', editingMemberId), {
+          name: memberForm.name,
+          relation: memberForm.relation,
+          phone: memberForm.phone || '',
+          photo: memberForm.photo || '',
+        });
+      } else {
+        await addDoc(collection(db, 'users', user.uid, 'familyMembers'), {
+          ...memberForm,
+          passCode: generateQR('PASS'),
+          active: true,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      closeMember();
       loadFamily();
     } catch (err) { alert('Error al guardar familiar: ' + err.message); }
     setLoading(false);
@@ -264,22 +365,34 @@ export default function ParentDashboard() {
   const grados = studentForm.nivel ? gradosDeNivel(studentForm.nivel) : [];
   const record = selectedStudent ? todayRecords[selectedStudent.id] : null;
 
+  // Estado visual de la tarjeta "hero" del alumno según su asistencia de hoy.
+  const heroState = !record ? 'none' : (record.exitTime ? 'out' : 'in');
+  const HERO = {
+    in:   { grad: 'linear-gradient(135deg,#16A34A,#15803D)', emoji: '🏫', text: 'En el colegio' },
+    out:  { grad: 'linear-gradient(135deg,#2563EB,#1D4ED8)', emoji: '🏠', text: 'Ya salió del colegio' },
+    none: { grad: 'linear-gradient(135deg,#B9A6AB,#8C6A70)', emoji: '🕗', text: 'Sin registro de entrada hoy' },
+  }[heroState];
+
   const tabs = [
-    { id: 'status', label: 'Asistencia', icon: Bell },
-    { id: 'family', label: 'Grupo Familiar', icon: Users2 },
-    { id: 'recogidas', label: 'Recogidas', icon: Car },
-    { id: 'avisos', label: 'Avisos', icon: Megaphone },
-    { id: 'profile', label: 'Mi Perfil', icon: UserCircle },
+    { id: 'status', label: 'Asistencia', short: 'Asistencia', icon: Bell },
+    { id: 'family', label: 'Grupo Familiar', short: 'Familia', icon: Users2 },
+    { id: 'recogidas', label: 'Recogidas', short: 'Recogidas', icon: Car },
+    { id: 'avisos', label: 'Avisos', short: 'Avisos', icon: Megaphone },
+    { id: 'profile', label: 'Mi Perfil', short: 'Perfil', icon: UserCircle },
   ];
 
   return (
-    <div className="page-container animate-in">
-      <div className="page-header">
-        <h1 className="page-title">Portal de Padres</h1>
-        <p className="page-subtitle">Bienvenido, {userData?.displayName}</p>
+    <div className="page-container pp-page animate-in">
+      <div className="pp-header">
+        <Avatar src={myPhoto} name={userData?.displayName} size={52} onClick={myPhoto ? () => setLightbox(myPhoto) : undefined} />
+        <div>
+          <div className="pp-hello">Hola 👋</div>
+          <div className="pp-name">{userData?.displayName || 'Bienvenido'}</div>
+        </div>
       </div>
 
-      <div className="tabs">
+      {/* Tabs superiores (escritorio) */}
+      <div className="tabs pp-tabs-top">
         {tabs.map(t => {
           const Icon = t.icon;
           return (
@@ -322,44 +435,57 @@ export default function ParentDashboard() {
               </div>
             </div>
           ) : selectedStudent && (
+            <>
             <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px'}}>
-              <div className="card" style={{textAlign:'center', padding:32}}>
-                <div style={{width:80,height:80,borderRadius:'50%',background: record ? (record.exitTime ? 'var(--warning-bg)' : 'var(--success-bg)') : 'var(--gris-100)', display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:'2rem'}}>
-                  {record ? (record.exitTime ? '🏠' : '🏫') : '❓'}
+              {/* Tarjeta hero del alumno */}
+              <div className="card" style={{padding:0, overflow:'hidden'}}>
+                <div style={{background: HERO.grad, color:'#fff', padding:'28px 20px', textAlign:'center'}}>
+                  <div style={{fontSize:'3rem', lineHeight:1}}>{HERO.emoji}</div>
+                  <div style={{fontWeight:800, fontSize:'1.05rem', marginTop:8, letterSpacing:0.2}}>{HERO.text}</div>
                 </div>
-                <h2 style={{fontSize:'1.5rem',fontWeight:800}}>{selectedStudent.name} {selectedStudent.lastName}</h2>
-                <p style={{color:'var(--gris-500)',marginBottom:16}}>{selectedStudent.grado} {selectedStudent.nivel} {selectedStudent.grupo}</p>
-                <button onClick={() => setShowQR(selectedStudent)} className="btn btn-sm btn-secondary mb-4"><Download size={14}/> Ver Código QR</button>
-                {record ? (
-                  <div>
-                    <span className={`badge ${record.exitTime ? 'badge-warning' : 'badge-success'}`} style={{fontSize:'0.9rem',padding:'6px 16px'}}>
-                      {record.exitTime ? 'Ya salió del colegio' : 'Actualmente en el colegio'}
-                    </span>
-                    <div className="grid-2 mt-4">
-                      <div className="stat-card" style={{padding:12}}><div><div className="stat-label">Entrada</div><div className="stat-value" style={{fontSize:'1.1rem'}}>{formatTime(record.entryTime)}</div></div></div>
-                      <div className="stat-card" style={{padding:12}}><div><div className="stat-label">Salida</div><div className="stat-value" style={{fontSize:'1.1rem'}}>{formatTime(record.exitTime)}</div></div></div>
-                    </div>
-                    {record.pickedUpByName && (
-                      <p style={{marginTop:12, fontSize:'0.85rem'}}>Recogido por <strong>{record.pickedUpByName}</strong> ({record.pickedUpByRelation})</p>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{marginTop:16}}><span className="badge badge-danger">Sin registro de entrada hoy</span></div>
-                )}
+                <div style={{padding:'20px', textAlign:'center'}}>
+                  <h2 style={{fontSize:'1.4rem', fontWeight:800}}>{selectedStudent.name} {selectedStudent.lastName}</h2>
+                  <p style={{color:'var(--gris-500)', marginTop:2}}>{selectedStudent.grado} {selectedStudent.nivel} {selectedStudent.grupo}</p>
+
+                  {record ? (
+                    <>
+                      <div className="grid-2 mt-4" style={{textAlign:'left'}}>
+                        <div style={{display:'flex', alignItems:'center', gap:10, padding:12, borderRadius:'var(--radius-md)', background:'var(--success-bg)'}}>
+                          <LogIn size={20} color="var(--success)"/>
+                          <div><div className="stat-label">Entrada</div><div style={{fontWeight:800, fontSize:'1.05rem', color:'var(--text-main)'}}>{formatTime(record.entryTime)}</div></div>
+                        </div>
+                        <div style={{display:'flex', alignItems:'center', gap:10, padding:12, borderRadius:'var(--radius-md)', background:'var(--info-bg)'}}>
+                          <LogOut size={20} color="var(--info)"/>
+                          <div><div className="stat-label">Salida</div><div style={{fontWeight:800, fontSize:'1.05rem', color:'var(--text-main)'}}>{formatTime(record.exitTime)}</div></div>
+                        </div>
+                      </div>
+                      {record.pickedUpByName && (
+                        <p style={{marginTop:14, fontSize:'0.85rem', color:'var(--gris-600)'}}>Recogido por <strong>{record.pickedUpByName}</strong>{record.pickedUpByRelation ? ` (${record.pickedUpByRelation})` : ''}</p>
+                      )}
+                    </>
+                  ) : (
+                    <p style={{marginTop:14, fontSize:'0.88rem', color:'var(--gris-500)'}}>Aún no se ha registrado su entrada de hoy.</p>
+                  )}
+
+                  <button onClick={() => setShowQR(selectedStudent)} className="btn btn-secondary w-full" style={{marginTop:18}}><IdCard size={16}/> Ver código QR de acceso</button>
+                </div>
               </div>
 
+              {/* Notificaciones */}
               <div className="card">
-                <h3 className="card-title" style={{marginBottom:16}}>Últimas Notificaciones</h3>
+                <h3 className="card-title" style={{marginBottom:16, display:'flex', alignItems:'center', gap:8}}><Bell size={18} color="var(--guinda)"/> Últimos movimientos</h3>
                 {notifications.length === 0 ? (
-                  <div className="empty-state" style={{padding:24}}><p className="empty-state-text">No hay notificaciones aún</p></div>
+                  <div className="empty-state" style={{padding:24}}><div className="empty-state-icon">🔔</div><p className="empty-state-text">No hay notificaciones aún</p></div>
                 ) : (
-                  <div className="flex flex-col gap-2" style={{maxHeight:400, overflowY:'auto'}}>
+                  <div className="flex flex-col gap-2" style={{maxHeight:420, overflowY:'auto'}}>
                     {notifications.map(n => (
-                      <div key={n.id} style={{padding:'12px',borderRadius:'var(--radius-sm)',background: n.type === 'entry' ? 'var(--success-bg)' : 'var(--info-bg)',display:'flex',alignItems:'center',gap:12}}>
-                        {n.type === 'entry' ? <LogIn size={18} color="var(--success)"/> : <LogOut size={18} color="var(--info)"/>}
-                        <div style={{flex:1}}>
-                          <p style={{fontSize:'0.875rem',fontWeight:500}}>{n.message}</p>
-                          <p style={{fontSize:'0.75rem',color:'var(--gris-500)'}}>{formatDate(n.createdAt)}</p>
+                      <div key={n.id} style={{padding:'12px 14px', borderRadius:'var(--radius-md)', background:'var(--surface-hover)', display:'flex', alignItems:'center', gap:12}}>
+                        <span style={{width:36, height:36, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background: n.type === 'entry' ? 'var(--success-bg)' : 'var(--info-bg)'}}>
+                          {n.type === 'entry' ? <LogIn size={18} color="var(--success)"/> : <LogOut size={18} color="var(--info)"/>}
+                        </span>
+                        <div style={{flex:1, minWidth:0}}>
+                          <p style={{fontSize:'0.875rem', fontWeight:500}}>{n.message}</p>
+                          <p style={{fontSize:'0.72rem', color:'var(--gris-500)', marginTop:2}}>{formatDate(n.createdAt)}</p>
                         </div>
                       </div>
                     ))}
@@ -367,6 +493,66 @@ export default function ParentDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Notas del profesor (compartidas con el tutor) */}
+            <div className="card" style={{marginTop:16}}>
+              <h3 className="card-title" style={{marginBottom:16, display:'flex', alignItems:'center', gap:8}}><StickyNote size={18} color="var(--guinda)"/> Notas del profesor</h3>
+              {notesLoading ? (
+                <p style={{textAlign:'center', color:'var(--gris-500)', padding:16, fontSize:'0.88rem'}}>Cargando notas…</p>
+              ) : teacherNotes.length === 0 ? (
+                <div className="empty-state" style={{padding:24}}><div className="empty-state-icon">📝</div><p className="empty-state-text">Sin notas del profesor por ahora.</p></div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {teacherNotes.map(n => {
+                    const cat = NOTE_CATS[n.category] || NOTE_CATS.conducta;
+                    return (
+                      <div key={n.id} style={{padding:'12px 14px', borderRadius:'var(--radius-md)', background:'var(--surface-hover)', borderLeft:'4px solid var(--guinda)'}}>
+                        <div className="flex justify-between items-center" style={{marginBottom:4, gap:8}}>
+                          <span className={`badge ${cat.badge}`}>{cat.label}</span>
+                          <span style={{fontSize:'0.72rem', color:'var(--gris-500)'}}>{formatDate(n.createdAt)}</span>
+                        </div>
+                        <p style={{fontSize:'0.9rem', whiteSpace:'pre-wrap'}}>{n.text}</p>
+                        <p style={{fontSize:'0.72rem', color:'var(--gris-500)', marginTop:4}}>— {n.authorName}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Calificaciones por materia */}
+            <div className="card" style={{marginTop:16}}>
+              <h3 className="card-title" style={{marginBottom:16, display:'flex', alignItems:'center', gap:8}}><GraduationCap size={18} color="var(--guinda)"/> Calificaciones</h3>
+              {gradesLoading ? (
+                <p style={{textAlign:'center', color:'var(--gris-500)', padding:16, fontSize:'0.88rem'}}>Cargando calificaciones…</p>
+              ) : grades.length === 0 ? (
+                <div className="empty-state" style={{padding:24}}><div className="empty-state-icon">🎓</div><p className="empty-state-text">Aún no hay calificaciones registradas.</p></div>
+              ) : (
+                (() => {
+                  const bySubject = {};
+                  grades.forEach(g => { const k = g.subjectName || 'Materia'; (bySubject[k] = bySubject[k] || []).push(g); });
+                  return (
+                    <div className="flex flex-col gap-3">
+                      {Object.keys(bySubject).sort().map(sub => (
+                        <div key={sub} style={{border:'1px solid var(--gris-200)', borderRadius:'var(--radius-md)', overflow:'hidden'}}>
+                          <div style={{padding:'8px 12px', background:'var(--surface-hover)', fontWeight:700, fontSize:'0.9rem'}}>{sub}</div>
+                          <div style={{padding:'8px 12px', display:'flex', flexDirection:'column', gap:8}}>
+                            {bySubject[sub].sort((a,b)=>(a.period||'').localeCompare(b.period||'')).map(g => (
+                              <div key={g.id} style={{display:'flex', alignItems:'center', gap:10, flexWrap:'wrap'}}>
+                                <span style={{fontSize:'0.82rem', color:'var(--gris-600)', minWidth:90}}>{g.period}</span>
+                                <span className={`badge ${Number(g.score) >= 6 ? 'badge-success' : 'badge-danger'}`} style={{fontSize:'0.85rem', fontWeight:800}}>{g.score}</span>
+                                {g.comment && <span style={{fontSize:'0.8rem', color:'var(--gris-500)'}}>{g.comment}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+            </>
           )}
         </>
       )}
@@ -374,22 +560,26 @@ export default function ParentDashboard() {
       {activeTab === 'family' && (
         <>
           <div className="flex justify-between items-center mb-4">
-            <p style={{color:'var(--gris-500)', fontSize:'0.9rem'}}>Personas autorizadas para recoger a tus hijos. Cada una tiene un pase de acceso con QR.</p>
-            <button onClick={() => { setMemberForm(emptyMember); setShowMember(true); }} className="btn btn-primary"><Plus size={16}/> Agregar persona</button>
+            <p style={{color:'var(--gris-500)', fontSize:'0.9rem'}}>Personas autorizadas para recoger a tus hijos. Cada una tiene su credencial digital con foto y QR.</p>
+            <button onClick={openAddMember} className="btn btn-primary"><Plus size={16}/> Agregar persona</button>
           </div>
           {familyMembers.length === 0 ? (
             <div className="card"><div className="empty-state"><div className="empty-state-icon">👪</div><p className="empty-state-text">Aún no agregas personas autorizadas.</p></div></div>
           ) : (
             <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px, 1fr))', gap:16}}>
               {familyMembers.map(m => (
-                <div key={m.id} className="card">
-                  <div className="flex justify-between items-center" style={{marginBottom:8}}>
+                <div key={m.id} className="card" style={{textAlign:'center'}}>
+                  <div style={{display:'flex', justifyContent:'center', marginBottom:10}}>
+                    <Avatar src={m.photo} name={m.name} size={72} onClick={m.photo ? () => setLightbox(m.photo) : undefined} />
+                  </div>
+                  <div className="flex justify-between items-center" style={{marginBottom:6}}>
                     <strong>{m.name}</strong>
                     <span className={`badge ${m.active ? 'badge-success' : 'badge-danger'}`}>{m.active ? 'Activo' : 'Inactivo'}</span>
                   </div>
                   <p style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{m.relation}{m.phone && ` · ${m.phone}`}</p>
-                  <div className="flex gap-2" style={{marginTop:12, flexWrap:'wrap'}}>
-                    <button onClick={() => setShowPass(m)} className="btn btn-sm btn-secondary"><IdCard size={14}/> Pase QR</button>
+                  <div className="flex gap-2" style={{marginTop:12, flexWrap:'wrap', justifyContent:'center'}}>
+                    <button onClick={() => setShowPass(m)} className="btn btn-sm btn-secondary"><IdCard size={14}/> Credencial</button>
+                    <button onClick={() => openEditMember(m)} className="btn btn-sm btn-secondary"><Pencil size={14}/> Editar</button>
                     <button onClick={() => toggleMember(m)} className="btn btn-sm btn-gold">{m.active ? 'Desactivar' : 'Activar'}</button>
                     <button onClick={() => removeMember(m)} className="btn btn-sm btn-danger"><Trash2 size={14}/></button>
                   </div>
@@ -470,9 +660,9 @@ export default function ParentDashboard() {
           ) : (
             <div className="flex flex-col gap-3">
               {announcements.map(a => (
-                <div key={a.id} className="card">
-                  <div className="flex justify-between items-center" style={{marginBottom:6}}>
-                    <h3 style={{fontWeight:700}}>{a.title}</h3>
+                <div key={a.id} className="card" style={{borderLeft:'4px solid var(--guinda)'}}>
+                  <div className="flex justify-between items-center" style={{marginBottom:6, gap:8}}>
+                    <h3 style={{fontWeight:700, display:'flex', alignItems:'center', gap:8}}><Megaphone size={16} color="var(--guinda)"/> {a.title}</h3>
                     <span className="badge badge-info">{a.scopeLabel || (a.scope?.type === 'all' ? 'General' : a.scope?.value)}</span>
                   </div>
                   <p style={{fontSize:'0.9rem', color:'var(--gris-700)', whiteSpace:'pre-wrap'}}>{a.body}</p>
@@ -487,8 +677,17 @@ export default function ParentDashboard() {
       {activeTab === 'profile' && (
         <div className="card" style={{maxWidth:600, margin:'0 auto'}}>
           <div style={{textAlign:'center', marginBottom:24}}>
-            <UserCircle size={64} color="var(--guinda)" style={{margin:'0 auto 8px'}}/>
-            <h2 className="card-title">Configuración de Perfil</h2>
+            <div style={{display:'flex', justifyContent:'center'}}>
+              <Avatar src={myPhoto} name={profileForm.displayName || userData?.displayName} size={96} onClick={myPhoto ? () => setLightbox(myPhoto) : undefined} />
+            </div>
+            <div style={{marginTop:10, display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap'}}>
+              <label className="btn btn-sm btn-secondary" style={{cursor: photoBusy ? 'wait' : 'pointer'}}>
+                <Camera size={14}/> {photoBusy ? 'Procesando...' : (myPhoto ? 'Cambiar foto' : 'Subir foto')}
+                <input type="file" accept="image/*" hidden disabled={photoBusy} onChange={handleMyPhoto} />
+              </label>
+            </div>
+            <p style={{fontSize:'0.72rem', color:'var(--gris-500)', marginTop:6}}>Tu foto ayuda al checador a identificarte cuando recoges a tu hijo.</p>
+            <h2 className="card-title" style={{marginTop:16}}>Configuración de Perfil</h2>
           </div>
           {profileMsg.text && (
             <div style={{padding:12, borderRadius:'var(--radius-sm)', marginBottom:16, background: profileMsg.type === 'success' ? 'var(--success-bg)' : 'var(--danger-bg)', color: profileMsg.type === 'success' ? 'var(--success)' : 'var(--danger)', fontSize:'0.85rem', fontWeight:500}}>
@@ -517,6 +716,15 @@ export default function ParentDashboard() {
             )}
             <button type="submit" className="btn btn-primary w-full" disabled={loading}><Save size={16}/> {loading ? 'Guardando...' : 'Guardar Cambios'}</button>
           </form>
+
+          <div style={{marginTop:24, paddingTop:16, borderTop:'1px solid var(--gris-200)', textAlign:'center'}}>
+            <p style={{fontSize:'0.78rem', color:'var(--gris-500)', marginBottom:10}}>
+              ¿No ves los cambios más recientes? Recarga la app a la última versión.
+            </p>
+            <button type="button" onClick={async () => { setUpdating(true); await forceUpdate(); }} disabled={updating} className="btn btn-secondary btn-sm">
+              <RefreshCw size={14}/> {updating ? 'Actualizando…' : 'Obtener nueva actualización'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -578,15 +786,30 @@ export default function ParentDashboard() {
         </div>
       )}
 
-      {/* Modal Agregar Familiar */}
+      {/* Modal Agregar/Editar Familiar */}
       {showMember && (
-        <div className="modal-overlay" onClick={() => setShowMember(false)}>
+        <div className="modal-overlay" onClick={closeMember}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Persona autorizada</h3>
-              <button className="modal-close" onClick={() => setShowMember(false)}><X size={16}/></button>
+              <h3 className="modal-title">{editingMemberId ? 'Editar persona' : 'Persona autorizada'}</h3>
+              <button className="modal-close" onClick={closeMember}><X size={16}/></button>
             </div>
             <form onSubmit={handleSaveMember}>
+              <div style={{textAlign:'center', marginBottom:16}}>
+                <div style={{display:'flex', justifyContent:'center'}}>
+                  <Avatar src={memberForm.photo} name={memberForm.name} size={96} onClick={memberForm.photo ? () => setLightbox(memberForm.photo) : undefined} />
+                </div>
+                <div style={{marginTop:10, display:'flex', gap:8, justifyContent:'center', flexWrap:'wrap'}}>
+                  <label className="btn btn-sm btn-secondary" style={{cursor: photoBusy ? 'wait' : 'pointer'}}>
+                    <Camera size={14}/> {photoBusy ? 'Procesando...' : (memberForm.photo ? 'Cambiar foto' : 'Subir foto')}
+                    <input type="file" accept="image/*" hidden disabled={photoBusy} onChange={handleMemberPhoto} />
+                  </label>
+                  {memberForm.photo && (
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => setMemberForm(f => ({ ...f, photo: '' }))}>Quitar</button>
+                  )}
+                </div>
+                <p style={{fontSize:'0.72rem', color:'var(--gris-500)', marginTop:6}}>La foto aparecerá en su credencial y la verá el checador al recoger.</p>
+              </div>
               <div className="form-group">
                 <label className="form-label">Nombre completo</label>
                 <input className="form-input" value={memberForm.name} onChange={e => setMemberForm({...memberForm, name: e.target.value})} required />
@@ -602,8 +825,8 @@ export default function ParentDashboard() {
                 <input className="form-input" value={memberForm.phone} onChange={e => setMemberForm({...memberForm, phone: e.target.value})} />
               </div>
               <div className="modal-footer">
-                <button type="button" onClick={() => setShowMember(false)} className="btn btn-secondary">Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Crear pase'}</button>
+                <button type="button" onClick={closeMember} className="btn btn-secondary">Cancelar</button>
+                <button type="submit" className="btn btn-primary" disabled={loading || photoBusy}>{loading ? 'Guardando...' : (editingMemberId ? 'Guardar cambios' : 'Crear pase')}</button>
               </div>
             </form>
           </div>
@@ -671,22 +894,63 @@ export default function ParentDashboard() {
         </div>
       )}
 
-      {/* Modal Pase de acceso (familiar) */}
+      {/* Modal Credencial digital (familiar) */}
       {showPass && (
         <div className="modal-overlay" onClick={() => setShowPass(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{textAlign:'center'}}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{textAlign:'center', maxWidth:380}}>
             <div className="modal-header">
-              <h3 className="modal-title">Pase de acceso</h3>
+              <h3 className="modal-title">Credencial digital</h3>
               <button className="modal-close" onClick={() => setShowPass(null)}><X size={16}/></button>
             </div>
-            <div style={{background:'var(--crema)',borderRadius:'var(--radius-md)',padding:24,display:'inline-block'}}>
-              <QRCodeSVG value={showPass.passCode} size={220} level="H" />
+            <div style={{borderRadius:'var(--radius-lg)', overflow:'hidden', border:'1px solid var(--gris-200)', boxShadow:'var(--shadow-md)'}}>
+              <div style={{background:'linear-gradient(135deg,var(--guinda),var(--guinda-dark))', color:'#fff', padding:'14px 16px', display:'flex', alignItems:'center', gap:10, justifyContent:'center'}}>
+                <img src={logo} alt="Logo" style={{width:34,height:34,borderRadius:'50%',objectFit:'cover'}} />
+                <div style={{textAlign:'left'}}>
+                  <div style={{fontWeight:800, fontSize:'0.92rem', lineHeight:1.1}}>Colegio Oliverio Cromwell</div>
+                  <div style={{fontSize:'0.7rem', opacity:0.85}}>Persona autorizada para recoger</div>
+                </div>
+              </div>
+              <div style={{padding:'20px 16px', background:'#fff'}}>
+                <div style={{display:'flex', justifyContent:'center'}}>
+                  <Avatar src={showPass.photo} name={showPass.name} size={110} onClick={showPass.photo ? () => setLightbox(showPass.photo) : undefined} />
+                </div>
+                <h3 style={{marginTop:12, fontWeight:800, fontSize:'1.2rem'}}>{showPass.name}</h3>
+                <div style={{marginTop:4}}><span className="badge badge-gold">{showPass.relation}</span></div>
+                <div style={{background:'var(--crema)', borderRadius:'var(--radius-md)', padding:16, display:'inline-block', marginTop:16}}>
+                  <QRCodeSVG value={showPass.passCode} size={150} level="H" />
+                </div>
+                <p style={{fontSize:'0.72rem', color:'var(--gris-300)', marginTop:8, letterSpacing:1}}>{showPass.passCode}</p>
+              </div>
             </div>
-            <h3 style={{marginTop:16,fontWeight:700}}>{showPass.name}</h3>
-            <p style={{color:'var(--gris-500)'}}>{showPass.relation}</p>
-            <p style={{fontSize:'0.75rem',color:'var(--gris-300)',marginTop:8}}>{showPass.passCode}</p>
             <button onClick={() => window.print()} className="btn btn-primary mt-4"><Download size={16}/> Imprimir/Guardar</button>
           </div>
+        </div>
+      )}
+
+      {/* Navegación inferior (móvil) — estilo app nativa */}
+      <nav className="pp-bottomnav">
+        {tabs.map(t => {
+          const Icon = t.icon;
+          const isActive = activeTab === t.id;
+          return (
+            <button key={t.id} className={`pp-tab ${isActive ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>
+              <Icon size={20} strokeWidth={isActive ? 2.4 : 2} />
+              <span>{t.short}</span>
+              {t.id === 'avisos' && announcements.length > 0 && (
+                <span className="pp-tab-dot">{announcements.length > 9 ? '9+' : announcements.length}</span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Visor de foto a pantalla completa (estilo WhatsApp): toca para cerrar */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)}
+          style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.92)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:3000, cursor:'zoom-out', padding:24}}>
+          <img src={lightbox} alt="" style={{maxWidth:'95vw', maxHeight:'90vh', borderRadius:12, boxShadow:'0 10px 40px rgba(0,0,0,0.5)'}} />
+          <button onClick={() => setLightbox(null)}
+            style={{position:'absolute', top:20, right:20, background:'rgba(255,255,255,0.15)', border:'none', color:'#fff', borderRadius:'50%', width:44, height:44, fontSize:20, cursor:'pointer'}}>✕</button>
         </div>
       )}
     </div>

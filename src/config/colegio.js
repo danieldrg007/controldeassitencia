@@ -37,6 +37,9 @@ export const PLANTELES = {
 
 export const GRUPOS = ['A', 'B'];
 
+// Periodos de evaluación para las calificaciones.
+export const PERIODOS = ['Periodo 1', 'Periodo 2', 'Periodo 3', 'Final'];
+
 export const NOMBRE_PLANTELES = Object.keys(PLANTELES);
 
 export const nivelesDePlantel = (plantel) => PLANTELES[plantel] || [];

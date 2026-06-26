@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { db } from '../firebase';
 import {
   collection, query, where, orderBy, onSnapshot,
@@ -15,6 +16,8 @@ const uniq = (arr) => [...new Set(arr)];
 
 export default function Messages() {
   const { user, userData } = useAuth();
+  const location = useLocation();
+  const didDeepLink = useRef(false);
   const uid = user?.uid;
   const myRole = typeof userData?.role === 'string' ? userData.role.trim().toLowerCase() : '';
   const myName = userData?.displayName || userData?.email || 'Yo';
@@ -113,35 +116,51 @@ export default function Messages() {
     setLoadingContacts(true);
     const direct = [];
     let groups = [];
-    try {
-      if (isStaff) {
+    // Cada consulta se aísla: si una falla (p. ej. por reglas) las demás igual cargan.
+    const safe = async (label, fn) => {
+      try { await fn(); }
+      catch (e) { console.warn(`Contactos: falló "${label}" →`, e?.code || e?.message || e); }
+    };
+    if (isStaff) {
+      await safe('todos-los-usuarios', async () => {
         const uSnap = await getDocs(collection(db, 'users'));
         uSnap.forEach(d => { if (d.id !== uid) direct.push({ uid: d.id, name: d.data().displayName || d.data().email || 'Usuario', role: d.data().role }); });
-        groups = todasLasClases().map(c => ({ id: c.id, label: c.label }));
-      } else if (isTeacher) {
-        const myClasses = Array.isArray(userData?.classIds) ? userData.classIds : [];
-        const parentIds = new Set();
+      });
+      groups = todasLasClases().map(c => ({ id: c.id, label: c.label }));
+    } else if (isTeacher) {
+      const myClasses = Array.isArray(userData?.classIds) ? userData.classIds : [];
+      const parentIds = new Set();
+      await safe('alumnos-de-mis-grupos', async () => {
         for (const cid of myClasses) {
           const sSnap = await getDocs(query(collection(db, 'students'), where('classId', '==', cid)));
           sSnap.forEach(d => (d.data().parentIds || []).forEach(p => parentIds.add(p)));
         }
+      });
+      await safe('tutores', async () => {
         const pDocs = await Promise.all([...parentIds].map(id => getDoc(doc(db, 'users', id))));
         pDocs.forEach(d => { if (d.exists()) direct.push({ uid: d.id, name: d.data().displayName || 'Padre/Tutor', role: 'parent' }); });
+      });
+      await safe('administracion', async () => {
         const aSnap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['admin', 'superadmin'])));
         aSnap.forEach(d => direct.push({ uid: d.id, name: d.data().displayName || 'Administración', role: d.data().role }));
-        groups = myClasses.map(cid => ({ id: cid, label: classLabel(parseClassId(cid)) }));
-      } else if (isParent) {
+      });
+      groups = myClasses.map(cid => ({ id: cid, label: classLabel(parseClassId(cid)) }));
+    } else if (isParent) {
+      let classIds = [];
+      await safe('mis-hijos', async () => {
         const cSnap = await getDocs(query(collection(db, 'students'), where('parentIds', 'array-contains', uid)));
-        const classIds = uniq(cSnap.docs.map(d => d.data().classId).filter(Boolean)).slice(0, 10);
-        if (classIds.length) {
+        classIds = uniq(cSnap.docs.map(d => d.data().classId).filter(Boolean)).slice(0, 10);
+      });
+      if (classIds.length) {
+        await safe('profesores', async () => {
           const tSnap = await getDocs(query(collection(db, 'users'), where('classIds', 'array-contains-any', classIds)));
           tSnap.forEach(d => { if ((d.data().role || '').toLowerCase() === 'teacher') direct.push({ uid: d.id, name: d.data().displayName || 'Profesor', role: 'teacher' }); });
-        }
+        });
+      }
+      await safe('administracion', async () => {
         const aSnap = await getDocs(query(collection(db, 'users'), where('role', 'in', ['admin', 'superadmin'])));
         aSnap.forEach(d => direct.push({ uid: d.id, name: d.data().displayName || 'Administración', role: d.data().role }));
-      }
-    } catch (e) {
-      console.error('Error cargando contactos', e);
+      });
     }
     // dedupe por uid
     const seen = new Set();
@@ -199,6 +218,18 @@ export default function Messages() {
       setShowNew(false);
     } catch (e) { alert('No se pudo abrir el canal del grupo: ' + e.message); }
   };
+
+  // Deep-link: abrir un canal de grupo o una conversación directa al llegar desde otra pantalla.
+  useEffect(() => {
+    if (didDeepLink.current || !uid) return;
+    const st = location.state;
+    if (!st) return;
+    didDeepLink.current = true;
+    if (st.openGroupClassId && (isStaff || isTeacher)) openGroup(st.openGroupClassId);
+    else if (st.openDirectUid) openDirect({ uid: st.openDirectUid, name: st.openDirectName, role: st.openDirectRole });
+    window.history.replaceState({}, '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, uid, isStaff, isTeacher]);
 
   const send = async () => {
     const text = draft.trim();
@@ -262,8 +293,8 @@ export default function Messages() {
                     padding: '12px 14px', borderBottom: '1px solid var(--gris-100)',
                     background: c.id === activeId ? 'var(--gris-100)' : 'transparent', display: 'flex', gap: 10, alignItems: 'center',
                   }}>
-                  <div style={{ width: 38, height: 38, borderRadius: '50%', background: c.type === 'group' ? 'var(--guinda)' : 'var(--info)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {c.type === 'group' ? <UsersIcon size={18} /> : <User size={18} />}
+                  <div style={{ width: 38, height: 38, borderRadius: '50%', background: c.type === 'group' ? 'var(--guinda)' : 'var(--info)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 700 }}>
+                    {c.type === 'group' ? <UsersIcon size={18} /> : (convTitle(c) || '?').trim().charAt(0).toUpperCase()}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontWeight: unread ? 800 : 600, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{convTitle(c)}</div>
@@ -289,8 +320,8 @@ export default function Messages() {
               <>
                 <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--gris-200)', display: 'flex', alignItems: 'center', gap: 10 }}>
                   <button onClick={() => setActiveId(null)} className="btn btn-icon btn-secondary msg-back" style={{ display: 'none' }}><ArrowLeft size={16} /></button>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: active.type === 'group' ? 'var(--guinda)' : 'var(--info)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {active.type === 'group' ? <UsersIcon size={18} /> : <User size={18} />}
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: active.type === 'group' ? 'var(--guinda)' : 'var(--info)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                    {active.type === 'group' ? <UsersIcon size={18} /> : (convTitle(active) || '?').trim().charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <div style={{ fontWeight: 700 }}>{convTitle(active)}</div>
@@ -300,12 +331,12 @@ export default function Messages() {
                   </div>
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: 'var(--gris-50, #f8fafc)' }}>
+                <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: 'var(--surface)' }}>
                   {messages.map(m => {
                     const mine = m.senderId === uid;
                     return (
                       <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
-                        <div style={{ maxWidth: '75%', background: mine ? 'var(--guinda)' : '#fff', color: mine ? '#fff' : 'var(--gris-900)', padding: '8px 12px', borderRadius: 12, boxShadow: 'var(--shadow-sm)' }}>
+                        <div style={{ maxWidth: '75%', background: mine ? 'var(--guinda)' : '#fff', color: mine ? '#fff' : 'var(--gris-900)', padding: '8px 12px', borderRadius: mine ? '14px 14px 4px 14px' : '14px 14px 14px 4px', boxShadow: 'var(--shadow-sm)' }}>
                           {!mine && active.type === 'group' && (
                             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--guinda)', marginBottom: 2 }}>{m.senderName}</div>
                           )}

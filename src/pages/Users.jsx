@@ -2,10 +2,20 @@ import { useState, useEffect, useMemo } from 'react';
 import { db, secondaryAuth, auth } from '../firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
-import { UserPlus, Search, Copy, Trash2, X, Edit, Key } from 'lucide-react';
+import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check } from 'lucide-react';
 import { ROLE_LABELS, NOMBRE_PLANTELES, nivelesDePlantel, gradosDeNivel, GRUPOS, makeClassId, classLabel, parseClassId } from '../config/colegio';
+import Avatar from '../components/Avatar';
 
 const ROLE_BADGE = { superadmin: 'badge-danger', admin: 'badge-gold', teacher: 'badge-info', guard: 'badge-warning', parent: 'badge-success', kiosk: 'badge-info' };
+
+// Apartados (pestañas) por tipo de perfil.
+const TABS = [
+  { id: 'todos', label: 'Todos', roles: null },
+  { id: 'admin', label: 'Administración', roles: ['admin', 'superadmin'] },
+  { id: 'teacher', label: 'Profesores', roles: ['teacher'] },
+  { id: 'parent', label: 'Padres', roles: ['parent'] },
+  { id: 'op', label: 'Operación', roles: ['guard', 'kiosk'] },
+];
 const emptyForm = { displayName: '', email: '', password: '', role: 'parent', classIds: [], plantel: '' };
 
 // Selector de grupos para profesores (agrupado por plantel).
@@ -42,12 +52,13 @@ function ClassPicker({ value, onChange }) {
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [tab, setTab] = useState('todos');
   const [showModal, setShowModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(null);
   const [editUser, setEditUser] = useState(null);
   const [deleteUser, setDeleteUser] = useState(null);
   const [baseUrl, setBaseUrl] = useState(window.location.origin);
+  const [copiedId, setCopiedId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
@@ -135,15 +146,27 @@ export default function Users() {
     alert('Enlace de acceso copiado al portapapeles');
   };
 
+  // Enlace de acceso para un usuario existente: abre el login con su correo
+  // precargado (sin contraseña, que no almacenamos). Útil para reenviárselo.
+  const copyAccessLink = async (u) => {
+    const link = `${baseUrl}/login?email=${encodeURIComponent(u.email || '')}`;
+    try { await navigator.clipboard.writeText(link); }
+    catch { window.prompt('Copia el enlace de acceso:', link); }
+    setCopiedId(u.id);
+    setTimeout(() => setCopiedId(c => (c === u.id ? null : c)), 2000);
+  };
+
+  const activeTab = TABS.find(t => t.id === tab) || TABS[0];
   const filtered = useMemo(() => users.filter(u => {
-    if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+    if (activeTab.roles && !activeTab.roles.includes(u.role)) return false;
     const q = search.toLowerCase();
     return (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
-  }), [users, roleFilter, search]);
+  }), [users, activeTab, search]);
 
-  const counts = useMemo(() => {
-    const c = { admin: 0, teacher: 0, guard: 0, parent: 0, kiosk: 0 };
-    users.forEach(u => { if (c[u.role] !== undefined) c[u.role] += 1; });
+  // Conteo por apartado (para los badges de las pestañas).
+  const tabCounts = useMemo(() => {
+    const c = {};
+    TABS.forEach(t => { c[t.id] = t.roles ? users.filter(u => t.roles.includes(u.role)).length : users.length; });
     return c;
   }, [users]);
 
@@ -184,57 +207,78 @@ export default function Users() {
       <div className="page-header flex justify-between items-center">
         <div>
           <h1 className="page-title">Gestión de Usuarios</h1>
-          <p className="page-subtitle">{users.length} usuarios · {counts.admin} admin · {counts.teacher} profesores · {counts.guard} checadores · {counts.parent} padres</p>
+          <p className="page-subtitle">{users.length} usuarios en total</p>
         </div>
         <button onClick={openCreate} className="btn btn-primary"><UserPlus size={16}/> Nuevo Usuario</button>
       </div>
 
-      <div className="card mb-4 flex gap-4 flex-col md:flex-row">
-        <div style={{position:'relative', flex:1}}>
-          <Search size={18} style={{position:'absolute',left:14,top:11,color:'var(--gris-500)'}} />
-          <input className="form-input" placeholder="Buscar por nombre o correo..." value={search} onChange={e => setSearch(e.target.value)} style={{paddingLeft:40}} />
-        </div>
-        <select className="form-select" style={{maxWidth:200}} value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
-          <option value="all">Todos los roles</option>
-          <option value="admin">Administradores</option>
-          <option value="teacher">Profesores</option>
-          <option value="guard">Checadores</option>
-          <option value="kiosk">Kioskos (tablet)</option>
-          <option value="parent">Padres</option>
-        </select>
+      {/* Apartados por tipo de perfil */}
+      <div className="seg mb-4" style={{flexWrap:'wrap'}}>
+        {TABS.map(t => (
+          <button key={t.id} type="button" className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}
+            style={{display:'inline-flex', alignItems:'center', justifyContent:'center', gap:6}}>
+            {t.label}
+            <span className="badge" style={{background: tab === t.id ? 'rgba(255,255,255,0.25)' : 'var(--surface-border)', color: tab === t.id ? '#fff' : 'var(--text-muted)'}}>{tabCounts[t.id]}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="card">
-        {filtered.length === 0 ? (
+      {/* Buscador */}
+      <div className="card mb-4">
+        <div style={{position:'relative'}}>
+          <Search size={18} style={{position:'absolute', left:14, top:11, color:'var(--gris-500)'}} />
+          <input className="form-input" placeholder="Buscar por nombre o correo..." value={search} onChange={e => setSearch(e.target.value)} style={{paddingLeft:40}} />
+        </div>
+      </div>
+
+      {/* Tarjetas de usuarios */}
+      {filtered.length === 0 ? (
+        <div className="card">
           <div className="empty-state">
             <div className="empty-state-icon">👥</div>
-            <p className="empty-state-text">No se encontraron usuarios</p>
+            <p className="empty-state-text">No hay usuarios en este apartado</p>
           </div>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead><tr><th>Nombre</th><th>Rol</th><th>Correo</th><th>Grupos</th><th>Acciones</th></tr></thead>
-              <tbody>
-                {filtered.map(u => (
-                  <tr key={u.id}>
-                    <td style={{fontWeight:600}}>{u.displayName}</td>
-                    <td><span className={`badge ${ROLE_BADGE[u.role] || 'badge-info'}`}>{ROLE_LABELS[u.role] || u.role}</span></td>
-                    <td>{u.email}</td>
-                    <td>{u.role === 'teacher' ? (u.classIds?.length || 0) : '—'}</td>
-                    <td>
-                      <div className="flex gap-2">
-                        <button onClick={() => openEdit(u)} className="btn btn-sm btn-secondary" title="Editar"><Edit size={14}/></button>
-                        <button onClick={() => handleSendReset(u.email)} className="btn btn-sm btn-gold" title="Restablecer Contraseña"><Key size={14}/></button>
-                        <button onClick={() => setDeleteUser(u)} className="btn btn-sm btn-danger" title="Eliminar"><Trash2 size={14}/></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:16}}>
+          {filtered.map(u => (
+            <div key={u.id} className="card" style={{display:'flex', flexDirection:'column', gap:10}}>
+              <div style={{display:'flex', alignItems:'center', gap:12}}>
+                <Avatar src={u.photo} name={u.displayName} size={48} />
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontWeight:700, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{u.displayName || 'Sin nombre'}</div>
+                  <span className={`badge ${ROLE_BADGE[u.role] || 'badge-info'}`} style={{marginTop:2}}>{ROLE_LABELS[u.role] || u.role}</span>
+                </div>
+              </div>
+
+              <div style={{fontSize:'0.82rem', color:'var(--gris-600)', display:'flex', alignItems:'center', gap:6, wordBreak:'break-all'}}>
+                <Mail size={13} style={{flexShrink:0}}/> {u.email || '—'}
+              </div>
+              {u.role === 'teacher' && (
+                <div style={{fontSize:'0.82rem', color:'var(--gris-500)', display:'flex', alignItems:'center', gap:6}}>
+                  <ClipboardCheck size={13}/> {u.classIds?.length || 0} grupo(s) asignado(s)
+                </div>
+              )}
+              {u.role === 'kiosk' && (
+                <div style={{fontSize:'0.82rem', color:'var(--gris-500)', display:'flex', alignItems:'center', gap:6}}>
+                  <MapPin size={13}/> {u.plantel ? `Plantel ${u.plantel}` : 'Sin plantel asignado'}
+                </div>
+              )}
+
+              <div style={{marginTop:'auto', paddingTop:4, display:'flex', flexDirection:'column', gap:8}}>
+                <button onClick={() => copyAccessLink(u)} className="btn btn-sm btn-secondary w-full" style={{justifyContent:'center'}} title="Copia el enlace de inicio de sesión con el correo precargado">
+                  {copiedId === u.id ? <><Check size={14}/> ¡Enlace copiado!</> : <><Link2 size={14}/> Copiar enlace de acceso</>}
+                </button>
+                <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                  <button onClick={() => openEdit(u)} className="btn btn-sm btn-secondary" style={{flex:1}}><Edit size={14}/> Editar</button>
+                  <button onClick={() => handleSendReset(u.email)} className="btn btn-sm btn-gold" title="Enviar correo para restablecer contraseña"><Key size={14}/></button>
+                  <button onClick={() => setDeleteUser(u)} className="btn btn-sm btn-danger" title="Eliminar"><Trash2 size={14}/></button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal Nuevo Usuario */}
       {showModal && (

@@ -242,6 +242,60 @@ service cloud.firestore {
       }
     }
 
+    // ---------------- OBSERVACIONES / NOTAS POR ALUMNO ----------------
+    // El profesor registra notas (conducta/académicas) de alumnos de SUS grupos.
+    // Admin ve todo. El tutor solo ve las marcadas visibleToParent y de sus hijos.
+    match /observations/{obsId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && teacherOwnsClass(resource.data.classId)) ||
+        (
+          isParent() &&
+          resource.data.visibleToParent == true &&
+          studentExists(resource.data.studentId) &&
+          request.auth.uid in studentDoc(resource.data.studentId).parentIds
+        )
+      );
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (
+          isTeacher() &&
+          teacherOwnsClass(request.resource.data.classId) &&
+          request.resource.data.authorId == request.auth.uid
+        )
+      );
+      allow update, delete: if signedIn() && (
+        isAdmin() || (isTeacher() && resource.data.authorId == request.auth.uid)
+      );
+    }
+
+    // ---------------- MATERIAS (catálogo, lo gestiona admin) ----------------
+    match /subjects/{subjectId} {
+      allow read: if signedIn();
+      allow create, update, delete: if signedIn() && isAdmin();
+    }
+
+    // ---------------- CALIFICACIONES POR MATERIA ----------------
+    // El profesor califica alumnos de SUS grupos. Admin todo. El tutor ve las de sus hijos.
+    match /grades/{gradeId} {
+      allow read: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && teacherOwnsClass(resource.data.classId)) ||
+        (
+          isParent() &&
+          studentExists(resource.data.studentId) &&
+          request.auth.uid in studentDoc(resource.data.studentId).parentIds
+        )
+      );
+      allow create, update: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && teacherOwnsClass(request.resource.data.classId))
+      );
+      allow delete: if signedIn() && (
+        isAdmin() || (isTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
