@@ -87,6 +87,9 @@ export default function Users() {
         email: form.email,
         displayName: form.displayName,
         role: form.role,
+        // Guardamos la contraseña inicial para poder generar enlaces de acceso
+        // directo. Inseguro a propósito: se asume que el profesor la cambia.
+        password: form.password,
         createdAt: new Date().toISOString(),
       };
       if (form.role === 'teacher') payload.classIds = form.classIds;
@@ -149,9 +152,11 @@ export default function Users() {
   };
 
   // Enlace de acceso para un usuario existente: abre el login con su correo
-  // precargado (sin contraseña, que no almacenamos). Útil para reenviárselo.
+  // (y contraseña, si la guardamos al crearlo) precargados. Para los usuarios
+  // antiguos sin contraseña almacenada, el enlace solo lleva el correo.
   const copyAccessLink = async (u) => {
-    const link = `${baseUrl}/login?email=${encodeURIComponent(u.email || '')}`;
+    const pwd = u.password ? `&pwd=${encodeURIComponent(u.password)}` : '';
+    const link = `${baseUrl}/login?email=${encodeURIComponent(u.email || '')}${pwd}`;
     try { await navigator.clipboard.writeText(link); }
     catch { window.prompt('Copia el enlace de acceso:', link); }
     setCopiedId(u.id);
@@ -271,8 +276,8 @@ export default function Users() {
               )}
 
               <div style={{marginTop:'auto', paddingTop:4, display:'flex', flexDirection:'column', gap:8}}>
-                <button onClick={() => copyAccessLink(u)} className="btn btn-sm btn-secondary w-full" style={{justifyContent:'center'}} title="Copia el enlace de inicio de sesión con el correo precargado">
-                  {copiedId === u.id ? <><Check size={14}/> ¡Enlace copiado!</> : <><Link2 size={14}/> Copiar enlace de acceso</>}
+                <button onClick={() => copyAccessLink(u)} className="btn btn-sm btn-secondary w-full" style={{justifyContent:'center'}} title={u.password ? 'Copia el enlace con correo y contraseña precargados (acceso directo)' : 'Copia el enlace con el correo precargado (este usuario no tiene contraseña guardada)'}>
+                  {copiedId === u.id ? <><Check size={14}/> ¡Enlace copiado!</> : <><Link2 size={14}/> {u.password ? 'Copiar acceso directo' : 'Copiar enlace de acceso'}</>}
                 </button>
                 <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
                   <button onClick={() => openEdit(u)} className="btn btn-sm btn-secondary" style={{flex:1}}><Edit size={14}/> Editar</button>

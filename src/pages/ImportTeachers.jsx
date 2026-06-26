@@ -178,6 +178,8 @@ export default function ImportTeachers() {
           displayName: r.displayName,
           role: 'teacher',
           classIds: [],
+          // Contraseña inicial guardada para los enlaces de acceso directo.
+          password,
           createdAt: new Date().toISOString(),
           importedFrom: 'hrms',
         };
