@@ -33,12 +33,12 @@ export default {
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
       },
-      borderRadius: { sm: '8px', md: '12px', lg: '16px', xl: '24px' },
+      borderRadius: { sm: '10px', md: '14px', lg: '18px', xl: '26px' },
       boxShadow: {
-        sm: '0 1px 2px rgba(135,36,52,0.06)',
-        md: '0 4px 6px -1px rgba(135,36,52,0.10), 0 2px 4px -2px rgba(135,36,52,0.08)',
-        lg: '0 10px 15px -3px rgba(135,36,52,0.12), 0 4px 6px -4px rgba(135,36,52,0.10)',
-        xl: '0 20px 25px -5px rgba(135,36,52,0.14), 0 8px 10px -6px rgba(135,36,52,0.10)',
+        sm: '0 1px 2px rgba(135,36,52,0.05)',
+        md: '0 2px 4px rgba(135,36,52,0.05), 0 6px 16px -4px rgba(135,36,52,0.10)',
+        lg: '0 4px 8px rgba(135,36,52,0.06), 0 14px 32px -8px rgba(135,36,52,0.14)',
+        xl: '0 8px 16px rgba(135,36,52,0.08), 0 28px 56px -12px rgba(135,36,52,0.18)',
       },
       keyframes: {
         fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
