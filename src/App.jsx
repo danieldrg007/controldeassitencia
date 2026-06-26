@@ -9,6 +9,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Scanner = lazy(() => import('./pages/Scanner'));
 const Students = lazy(() => import('./pages/Students'));
 const Users = lazy(() => import('./pages/Users'));
+const ImportTeachers = lazy(() => import('./pages/ImportTeachers'));
 const ParentDashboard = lazy(() => import('./pages/ParentDashboard'));
 const TeacherDashboard = lazy(() => import('./pages/TeacherDashboard'));
 const Kiosk = lazy(() => import('./pages/Kiosk'));
@@ -91,6 +92,9 @@ function AppRoutes() {
         } />
         <Route path="/users" element={
           <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><Users /></ProtectedRoute>
+        } />
+        <Route path="/import-teachers" element={
+          <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><ImportTeachers /></ProtectedRoute>
         } />
         <Route path="/announcements" element={
           <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><Announcements /></ProtectedRoute>

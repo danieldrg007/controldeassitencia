@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db, secondaryAuth, auth } from '../firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
-import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check } from 'lucide-react';
+import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check, FileSpreadsheet } from 'lucide-react';
 import { ROLE_LABELS, NOMBRE_PLANTELES, nivelesDePlantel, gradosDeNivel, GRUPOS, makeClassId, classLabel, parseClassId } from '../config/colegio';
 import Avatar from '../components/Avatar';
 
@@ -50,6 +51,7 @@ function ClassPicker({ value, onChange }) {
 }
 
 export default function Users() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('todos');
@@ -209,7 +211,10 @@ export default function Users() {
           <h1 className="page-title">Gestión de Usuarios</h1>
           <p className="page-subtitle">{users.length} usuarios en total</p>
         </div>
-        <button onClick={openCreate} className="btn btn-primary"><UserPlus size={16}/> Nuevo Usuario</button>
+        <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+          <button onClick={() => navigate('/import-teachers')} className="btn btn-secondary"><FileSpreadsheet size={16}/> Importar profesores</button>
+          <button onClick={openCreate} className="btn btn-primary"><UserPlus size={16}/> Nuevo Usuario</button>
+        </div>
       </div>
 
       {/* Apartados por tipo de perfil */}
