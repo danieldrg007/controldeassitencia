@@ -21,8 +21,22 @@ const normalizarPlantel = (raw) => {
   return PLANTEL_MAP[key] || '';
 };
 
-const genPassword = () => Math.random().toString(36).slice(-8);
+// Contraseña inicial para todas las cuentas creadas en bloque.
+// Cada usuario la cambia luego desde su perfil.
+const DEFAULT_PASSWORD = '123456';
 const isEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Mensajes legibles para los errores más comunes de Auth.
+const ERR_TEXT = {
+  'auth/too-many-requests': 'Firebase bloqueó por exceso de solicitudes',
+  'auth/email-already-in-use': 'El correo ya existe',
+  'auth/invalid-email': 'Correo inválido',
+  'auth/weak-password': 'Contraseña muy corta',
+  'auth/operation-not-allowed': 'Registro por correo deshabilitado',
+};
+const errText = (code) => ERR_TEXT[code] || code || 'Error desconocido';
 
 // Encuentra, dentro de las claves de una fila, la que corresponde a cada campo.
 const buildColumnMap = (sampleRow) => {
@@ -163,16 +177,37 @@ export default function ImportTeachers() {
   const selectedCount = selected.size;
 
   /* ── Creación en bloque ──────────────────────────────────── */
+  // Crea la cuenta reintentando cuando Firebase bloquea por exceso (throttle).
+  const createWithRetry = async (email, password) => {
+    let lastErr;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        return await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      } catch (err) {
+        lastErr = err;
+        if (err?.code === 'auth/too-many-requests') {
+          // Espera creciente: 6s, 12s, 18s antes de reintentar.
+          setProgress((p) => ({ ...p, waiting: 6 * (attempt + 1) }));
+          await sleep(6000 * (attempt + 1));
+          setProgress((p) => ({ ...p, waiting: 0 }));
+          continue;
+        }
+        throw err; // otros errores no se reintentan
+      }
+    }
+    throw lastErr;
+  };
+
   const runImport = async () => {
     const targets = [...selected].map((i) => rows[i]).filter((r) => r && isEmail(r.email) && !existing.has(norm(r.email)));
     if (!targets.length) return;
     setRunning(true);
-    setProgress({ done: 0, total: targets.length });
+    setProgress({ done: 0, total: targets.length, waiting: 0 });
     const out = [];
     for (const r of targets) {
-      const password = genPassword();
+      const password = DEFAULT_PASSWORD;
       try {
-        const cred = await createUserWithEmailAndPassword(secondaryAuth, r.email, password);
+        const cred = await createWithRetry(r.email, password);
         const payload = {
           email: r.email,
           displayName: r.displayName,
@@ -190,9 +225,11 @@ export default function ImportTeachers() {
       } catch (err) {
         const code = err?.code || '';
         if (code === 'auth/email-already-in-use') out.push({ ...r, status: 'exists' });
-        else out.push({ ...r, status: 'error', error: err?.message || code });
+        else out.push({ ...r, status: 'error', error: code || err?.message });
       }
       setProgress((p) => ({ ...p, done: p.done + 1 }));
+      // Pausa entre cuentas para no saturar Auth (evita el bloqueo masivo).
+      await sleep(900);
     }
     setResults(out);
     setRunning(false);
@@ -336,7 +373,11 @@ export default function ImportTeachers() {
               <UserCheck size={20} style={{ color: 'var(--brand)' }} />
               <span><strong>{selectedCount}</strong> profesor(es) seleccionados para crear</span>
               <button onClick={runImport} className="btn btn-primary" disabled={running || selectedCount === 0} style={{ marginLeft: 'auto' }}>
-                {running ? <><Loader2 size={16} className="spin" /> Creando {progress.done}/{progress.total}…</> : <>Crear {selectedCount} cuenta(s) de profesor</>}
+                {running
+                  ? (progress.waiting
+                    ? <><Loader2 size={16} className="spin" /> Pausa anti-bloqueo {progress.waiting}s…</>
+                    : <><Loader2 size={16} className="spin" /> Creando {progress.done}/{progress.total}…</>)
+                  : <>Crear {selectedCount} cuenta(s) de profesor</>}
               </button>
             </div>
           </div>
@@ -362,6 +403,11 @@ export default function ImportTeachers() {
                     {exists.length > 0 && <span className="badge badge-info">{exists.length} ya existían</span>}
                     {errors.length > 0 && <span className="badge badge-danger">{errors.length} con error</span>}
                   </div>
+                  {errors.length > 0 && (
+                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 14, lineHeight: 1.5 }}>
+                      Si fallaron por <strong>bloqueo temporal de Firebase</strong>, espera 1–2 minutos y vuelve a subir el <strong>mismo archivo</strong>: los ya creados saldrán como “Ya existe” y solo se reintentarán los faltantes.
+                    </p>
+                  )}
                 </div>
 
                 {created.length > 0 && (
@@ -381,7 +427,7 @@ export default function ImportTeachers() {
                           <td>
                             {r.status === 'created' && <span className="badge badge-success">Creado</span>}
                             {r.status === 'exists' && <span className="badge badge-info">Ya existía</span>}
-                            {r.status === 'error' && <span className="badge badge-danger" title={r.error}>Error</span>}
+                            {r.status === 'error' && <span className="badge badge-danger" title={r.error}>{errText(r.error)}</span>}
                           </td>
                         </tr>
                       ))}
@@ -390,6 +436,9 @@ export default function ImportTeachers() {
                 </div>
 
                 <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 16 }}>
+                  Todas las cuentas se crearon con la contraseña inicial <strong>123456</strong>. Pide a cada profesor que la cambie en <strong>su perfil</strong>.
+                </p>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 6 }}>
                   Los profesores se crearon <strong>sin grupos asignados</strong>. Asígnalos en <strong>Usuarios → Profesores → Editar</strong>.
                 </p>
 

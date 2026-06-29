@@ -43,8 +43,8 @@ export default function NotificationBell({ unread = 0, hasChat = false }) {
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(o => !o)} className="btn btn-icon" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', position: 'relative' }} title="Notificaciones" aria-label="Notificaciones">
-        <Bell size={18} />
+      <button onClick={() => setOpen(o => !o)} className="btn btn-icon navbar-bell" style={{ background: 'rgba(255,255,255,0.18)', color: '#fff', position: 'relative' }} title="Notificaciones" aria-label="Notificaciones">
+        <Bell size={20} />
         {total > 0 && (
           <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 17, height: 17, borderRadius: 999, background: 'var(--danger)', color: '#fff', fontSize: '0.62rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', border: '2px solid var(--brand-dark)' }}>
             {total > 9 ? '9+' : total}

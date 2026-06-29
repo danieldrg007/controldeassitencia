@@ -4,6 +4,7 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWith
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const AuthContext = createContext();
+// eslint-disable-next-line react-refresh/only-export-components -- el hook vive junto al provider a propósito; solo afecta el Fast Refresh en desarrollo.
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {

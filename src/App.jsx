@@ -16,6 +16,7 @@ const Kiosk = lazy(() => import('./pages/Kiosk'));
 const Announcements = lazy(() => import('./pages/Announcements'));
 const Messages = lazy(() => import('./pages/Messages'));
 const Subjects = lazy(() => import('./pages/Subjects'));
+const Calendar = lazy(() => import('./pages/Calendar'));
 
 const FallbackLoader = () => (
   <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh'}}>
@@ -114,6 +115,10 @@ function AppRoutes() {
 
         <Route path="/messages" element={
           <ProtectedRoute allowedRoles={['superadmin','admin','teacher','parent']}><Navbar /><Messages /></ProtectedRoute>
+        } />
+
+        <Route path="/calendar" element={
+          <ProtectedRoute allowedRoles={['superadmin','admin','teacher','parent']}><Navbar /><Calendar /></ProtectedRoute>
         } />
 
         <Route path="/parent" element={

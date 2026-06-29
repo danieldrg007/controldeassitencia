@@ -407,7 +407,7 @@ export default function Dashboard() {
             ) : (
               <div className="table-container">
                 {viewMode === 'daily' ? (
-                  <table>
+                  <table className="table-cards">
                     <thead>
                       <tr>
                         <th>Alumno</th>
@@ -424,22 +424,22 @@ export default function Dashboard() {
                         return (
                           <tr key={s.id}>
                             <td style={{fontWeight: 500}}>{s.lastName} {s.name}</td>
-                            <td>{s.grado} {s.nivel} {s.grupo}</td>
-                            <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
-                            <td>
+                            <td data-label="Grado / Grupo">{s.grado} {s.nivel} {s.grupo}</td>
+                            <td data-label="Plantel" style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
+                            <td data-label="Estado">
                               <span className={`badge ${rec ? 'badge-success' : 'badge-danger'}`}>
                                 {rec ? 'Presente' : 'Ausente'}
                               </span>
                             </td>
-                            <td>{rec?.entryTime ? new Date(rec.entryTime).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}) : '—'}</td>
-                            <td>{rec?.exitTime ? new Date(rec.exitTime).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}) : '—'}</td>
+                            <td data-label="Entrada">{rec?.entryTime ? new Date(rec.entryTime).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}) : '—'}</td>
+                            <td data-label="Salida">{rec?.exitTime ? new Date(rec.exitTime).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'}) : '—'}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
                 ) : viewMode === 'class' ? (
-                  <table>
+                  <table className="table-cards">
                     <thead>
                       <tr>
                         <th>Alumno</th>
@@ -460,17 +460,17 @@ export default function Dashboard() {
                         return (
                           <tr key={s.id}>
                             <td style={{fontWeight: 500}}>{s.lastName} {s.name}</td>
-                            <td>{s.grado} {s.nivel} {s.grupo}</td>
-                            <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
-                            <td><span className={`badge ${cfg.badge}`}>{cfg.label}</span></td>
-                            <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{rec?.takenByName || '—'}</td>
+                            <td data-label="Grado / Grupo">{s.grado} {s.nivel} {s.grupo}</td>
+                            <td data-label="Plantel" style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
+                            <td data-label="Estado en Clase"><span className={`badge ${cfg.badge}`}>{cfg.label}</span></td>
+                            <td data-label="Registrada por" style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{rec?.takenByName || '—'}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
                 ) : (
-                  <table>
+                  <table className="table-cards">
                     <thead>
                       <tr>
                         <th>Alumno</th>
@@ -488,11 +488,11 @@ export default function Dashboard() {
                         return (
                           <tr key={s.id}>
                             <td style={{fontWeight: 500}}>{s.lastName} {s.name}</td>
-                            <td>{s.grado} {s.nivel} {s.grupo}</td>
-                            <td style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
-                            <td style={{textAlign: 'center'}}>{rec.daysPresent}</td>
-                            <td style={{textAlign: 'center'}}>{rec.totalDaysEvaluated}</td>
-                            <td style={{textAlign: 'right'}}>
+                            <td data-label="Grado / Grupo">{s.grado} {s.nivel} {s.grupo}</td>
+                            <td data-label="Plantel" style={{fontSize:'0.85rem', color:'var(--gris-500)'}}>{s.plantel || '—'}</td>
+                            <td data-label="Días Presente" style={{textAlign: 'center'}}>{rec.daysPresent}</td>
+                            <td data-label="Días Totales Eval." style={{textAlign: 'center'}}>{rec.totalDaysEvaluated}</td>
+                            <td data-label="% Asistencia" style={{textAlign: 'right'}}>
                               <span className={`badge ${pct >= 80 ? 'badge-success' : (pct >= 60 ? 'badge-warning' : 'badge-danger')}`}>
                                 {pct}%
                               </span>

@@ -4,8 +4,10 @@ import { db } from '../firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { updateEmail, updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
-import { ClipboardCheck, Megaphone, Check, X, Clock, Users, Send, UserCircle, Camera, Save, RefreshCw, MessageCircle, StickyNote, Mail, Plus, Trash2, CalendarDays, GraduationCap } from 'lucide-react';
+import { ClipboardCheck, Megaphone, Check, X, Clock, Users, Send, UserCircle, Camera, Save, RefreshCw, MessageCircle, StickyNote, Mail, Plus, Trash2, CalendarDays, GraduationCap, ImagePlus, Paperclip } from 'lucide-react';
 import { parseClassId, classLabel, PERIODOS } from '../config/colegio';
+import { PRIORIDADES, CATEGORIAS } from '../config/avisos';
+import { uploadAnnouncementFile, uploadAnnouncementCover, humanSize } from '../utils/announcements';
 import Avatar from '../components/Avatar';
 import { fileToResizedDataURL } from '../utils/image';
 import { forceUpdate } from '../utils/version';
@@ -115,32 +117,62 @@ export default function TeacherDashboard() {
   };
 
   // ---- Avisos ----
-  const [annForm, setAnnForm] = useState({ scope: '', title: '', body: '' });
+  const [annForm, setAnnForm] = useState({ scope: '', title: '', body: '', priority: 'normal', category: 'general' });
+  const [annCover, setAnnCover] = useState(null);
+  const [annFiles, setAnnFiles] = useState([]);
   const [annSaving, setAnnSaving] = useState(false);
+  const [annProgress, setAnnProgress] = useState('');
   const [annMsg, setAnnMsg] = useState('');
 
   useEffect(() => {
     if (!annForm.scope && classes.length) setAnnForm(f => ({ ...f, scope: classes[0].id }));
   }, [classes, annForm.scope]);
 
+  const addAnnFiles = (e) => {
+    const picked = Array.from(e.target.files || []);
+    setAnnFiles(prev => [...prev, ...picked]);
+    e.target.value = '';
+  };
+
   const sendAnnouncement = async (e) => {
     e.preventDefault();
     setAnnSaving(true);
     try {
-      await addDoc(collection(db, 'announcements'), {
+      const ref = doc(collection(db, 'announcements'));
+      const id = ref.id;
+
+      let cover = null;
+      if (annCover) { setAnnProgress('Subiendo portada...'); cover = await uploadAnnouncementCover(id, annCover); }
+
+      const attachments = [];
+      for (let i = 0; i < annFiles.length; i++) {
+        setAnnProgress(`Subiendo archivo ${i + 1} de ${annFiles.length}...`);
+        attachments.push(await uploadAnnouncementFile(id, annFiles[i]));
+      }
+
+      setAnnProgress('Enviando...');
+      await setDoc(ref, {
         title: annForm.title,
         body: annForm.body,
+        priority: annForm.priority,
+        category: annForm.category,
         scope: { type: 'class', value: annForm.scope },
         scopeLabel: classLabel(parseClassId(annForm.scope)),
+        coverUrl: cover?.url || null,
+        coverPath: cover?.path || null,
+        attachments,
         authorId: user.uid,
         authorName: userData?.displayName || 'Profesor',
         authorRole: 'teacher',
         createdAt: new Date().toISOString(),
       });
       setAnnMsg('Aviso enviado al grupo ✅');
-      setAnnForm(f => ({ ...f, title: '', body: '' }));
+      setAnnForm(f => ({ ...f, title: '', body: '', priority: 'normal', category: 'general' }));
+      setAnnCover(null);
+      setAnnFiles([]);
       setTimeout(() => setAnnMsg(''), 4000);
     } catch (e) { alert('Error al enviar aviso: ' + e.message); }
+    setAnnProgress('');
     setAnnSaving(false);
   };
 
@@ -363,7 +395,7 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
-      <div className="seg mb-4" style={{flexWrap:'wrap'}}>
+      <div className="seg seg-scroll mb-4">
         <button type="button" className={tab==='asistencia'?'active':''} onClick={() => setTab('asistencia')} style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6}}>
           <ClipboardCheck size={16}/> Pase de lista
         </button>
@@ -576,6 +608,20 @@ export default function TeacherDashboard() {
                 {classes.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Prioridad</label>
+                <select className="form-select" value={annForm.priority} onChange={e => setAnnForm({...annForm, priority: e.target.value})}>
+                  {Object.entries(PRIORIDADES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Categoría</label>
+                <select className="form-select" value={annForm.category} onChange={e => setAnnForm({...annForm, category: e.target.value})}>
+                  {Object.entries(CATEGORIAS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+            </div>
             <div className="form-group">
               <label className="form-label">Título</label>
               <input className="form-input" value={annForm.title} onChange={e => setAnnForm({...annForm, title: e.target.value})} required placeholder="Ej. Tarea de matemáticas" />
@@ -584,16 +630,50 @@ export default function TeacherDashboard() {
               <label className="form-label">Mensaje</label>
               <textarea className="form-input" rows={4} value={annForm.body} onChange={e => setAnnForm({...annForm, body: e.target.value})} required placeholder="Escribe el aviso para los padres del grupo..." />
             </div>
+            <div className="form-group">
+              <label className="form-label">Imagen de portada (opcional)</label>
+              {annCover ? (
+                <div style={{position:'relative'}}>
+                  <img src={URL.createObjectURL(annCover)} alt="portada" style={{width:'100%', maxHeight:160, objectFit:'cover', borderRadius:8}} />
+                  <button type="button" onClick={() => setAnnCover(null)} className="btn btn-sm btn-danger" style={{position:'absolute', top:8, right:8}}><X size={14}/></button>
+                </div>
+              ) : (
+                <label className="btn btn-secondary w-full" style={{cursor:'pointer'}}>
+                  <ImagePlus size={16}/> Elegir imagen
+                  <input type="file" accept="image/*" hidden onChange={e => setAnnCover(e.target.files?.[0] || null)} />
+                </label>
+              )}
+            </div>
+            <div className="form-group">
+              <label className="form-label">Archivos adjuntos (PDF, imágenes...)</label>
+              <label className="btn btn-secondary w-full" style={{cursor:'pointer'}}>
+                <Paperclip size={16}/> Agregar archivos
+                <input type="file" multiple hidden onChange={addAnnFiles} />
+              </label>
+              {annFiles.length > 0 && (
+                <div className="flex flex-col gap-2" style={{marginTop:8}}>
+                  {annFiles.map((f, i) => (
+                    <div key={i} className="flex justify-between items-center" style={{gap:8, fontSize:'0.82rem', padding:'6px 10px', border:'1px solid var(--gris-200)', borderRadius:8}}>
+                      <span style={{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{f.name}</span>
+                      <span style={{display:'flex', alignItems:'center', gap:8}}>
+                        <span style={{color:'var(--gris-500)', fontSize:'0.72rem'}}>{humanSize(f.size)}</span>
+                        <button type="button" onClick={() => setAnnFiles(prev => prev.filter((_, idx) => idx !== i))} className="btn btn-sm btn-danger"><X size={12}/></button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {annMsg && <p className="badge badge-success" style={{marginBottom:12}}>{annMsg}</p>}
             <button type="submit" className="btn btn-primary" disabled={annSaving}>
-              <Send size={16}/> {annSaving ? 'Enviando...' : 'Enviar aviso'}
+              <Send size={16}/> {annSaving ? (annProgress || 'Enviando...') : 'Enviar aviso'}
             </button>
           </form>
         </div>
       )}
 
       {tab === 'perfil' && (
-        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:16, alignItems:'start'}}>
+        <div className="pp-grid" style={{alignItems:'start'}}>
           <div className="card" style={{maxWidth:600}}>
             <div style={{textAlign:'center', marginBottom:24}}>
               <div style={{display:'flex', justifyContent:'center'}}>

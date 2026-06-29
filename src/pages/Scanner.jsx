@@ -16,70 +16,47 @@ export default function Scanner() {
   const [groupPickup, setGroupPickup] = useState(null); // { person, code, items }
   const [groupLoading, setGroupLoading] = useState(false);
   const [zoom, setZoom] = useState(null); // foto ampliada para verificar identidad
+  const [scanMode, setScanMode] = useState('student'); // estado para el render
 
   const html5QrRef = useRef(null);
-  const scanModeRef = useRef('student'); // 'student' | 'pass'
+  const scanModeRef = useRef('student'); // 'student' | 'pass' | 'pickupGroup' (para el callback onScanSuccess)
   const today = new Date().toISOString().split('T')[0];
-
-  const startScanner = (mode = 'student') => {
-    scanModeRef.current = mode;
-    setResult(null);
-    setError('');
-    setScanning(true);
-  };
-
-  useEffect(() => {
-    let scanner = null;
-    const init = async () => {
-      if (scanning && !html5QrRef.current) {
-        try {
-          await new Promise(r => setTimeout(r, 100));
-          scanner = new Html5Qrcode('qr-reader');
-          html5QrRef.current = scanner;
-          await scanner.start(
-            { facingMode: 'environment' },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            onScanSuccess,
-            () => {}
-          );
-        } catch (err) {
-          console.error('Camera Access Error:', err);
-          let msg = 'No se pudo acceder a la cámara.';
-          if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
-            msg += ' El navegador requiere HTTPS para activar la cámara.';
-          } else {
-            msg += ' Verifica los permisos o si otra app la está usando. Error: ' + (err.message || err);
-          }
-          setError(msg);
-          setScanning(false);
-        }
-      }
-    };
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanning]);
 
   const stopScanner = async () => {
     if (html5QrRef.current) {
       try {
         await html5QrRef.current.stop();
         html5QrRef.current.clear();
-      } catch (e) { /* noop */ }
+      } catch { /* noop */ }
       html5QrRef.current = null;
     }
     setScanning(false);
   };
 
-  const onScanSuccess = async (decodedText) => {
-    await stopScanner();
-    if (scanModeRef.current === 'pass') {
-      handlePassScan(decodedText);
-    } else if (scanModeRef.current === 'pickupGroup') {
-      handleGroupCode(decodedText);
-    } else {
-      await processStudent(decodedText);
-    }
+  const startScanner = (mode = 'student') => {
+    scanModeRef.current = mode;
+    setScanMode(mode);
+    setResult(null);
+    setError('');
+    setScanning(true);
   };
+
+  async function sendNotification(student, type, time, person = null) {
+    try {
+      const formattedTime = new Date(time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+      let message = type === 'entry'
+        ? `Tu hijo/a ${student.name} ${student.lastName} acaba de ENTRAR al colegio a las ${formattedTime}`
+        : `Tu hijo/a ${student.name} ${student.lastName} acaba de SALIR del colegio a las ${formattedTime}`;
+      if (type === 'exit' && person) message += ` · Recogido por ${person.name} (${person.relation})`;
+
+      for (const parentId of (student.parentIds || [])) {
+        await addDoc(collection(db, 'notifications'), {
+          parentId, studentId: student.id, type, message, time,
+          read: false, createdAt: new Date().toISOString(),
+        });
+      }
+    } catch (e) { console.error('Notification error:', e); }
+  }
 
   // ---- Recogida grupal con pase temporal ----
   const handleGroupCode = async (code) => {
@@ -184,7 +161,7 @@ export default function Scanner() {
     setLoadingPeople(false);
   };
 
-  const processStudent = async (qrCode) => {
+  async function processStudent(qrCode) {
     try {
       const snap = await getDocs(query(collection(db, 'students'), where('qrCode', '==', qrCode)));
       if (snap.empty) { setError('Código QR no reconocido. No se encontró alumno.'); return; }
@@ -219,18 +196,8 @@ export default function Scanner() {
       console.error(err);
       setError('Error al procesar el registro: ' + err.message);
     }
-  };
-
-  const handlePassScan = (passCode) => {
-    const match = authorized.find(p => p.passCode && p.passCode === passCode);
-    if (match) {
-      confirmExit(match);
-    } else {
-      setError('Pase no reconocido o no autorizado para este alumno.');
-    }
-  };
-
-  const confirmExit = async (person) => {
+  }
+  async function confirmExit(person) {
     if (!pendingExit) return;
     const { student, recordId } = pendingExit;
     const now = new Date().toISOString();
@@ -249,26 +216,66 @@ export default function Scanner() {
     }
     setPendingExit(null);
     setAuthorized([]);
-  };
+  }
+
+  function handlePassScan(passCode) {
+    const match = authorized.find(p => p.passCode && p.passCode === passCode);
+    if (match) {
+      confirmExit(match);
+    } else {
+      setError('Pase no reconocido o no autorizado para este alumno.');
+    }
+  }
+
+  async function onScanSuccess(decodedText) {
+    await stopScanner();
+    if (scanModeRef.current === 'pass') {
+      handlePassScan(decodedText);
+    } else if (scanModeRef.current === 'pickupGroup') {
+      handleGroupCode(decodedText);
+    } else {
+      await processStudent(decodedText);
+    }
+  }
+
+  useEffect(() => {
+    let scanner = null;
+    const init = async () => {
+      if (scanning && !html5QrRef.current) {
+        try {
+          await new Promise(r => setTimeout(r, 100));
+          scanner = new Html5Qrcode('qr-reader');
+          html5QrRef.current = scanner;
+          await scanner.start(
+            { facingMode: 'environment' },
+            {
+              fps: 10,
+              qrbox: (vw, vh) => { const s = Math.floor(Math.min(vw, vh) * 0.75); return { width: s, height: s }; },
+            },
+            onScanSuccess,
+            () => {}
+          );
+        } catch (err) {
+          console.error('Camera Access Error:', err);
+          let msg = 'No se pudo acceder a la cámara.';
+          if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            msg += ' El navegador requiere HTTPS para activar la cámara.';
+          } else {
+            msg += ' Verifica los permisos o si otra app la está usando. Error: ' + (err.message || err);
+          }
+          setError(msg);
+          setScanning(false);
+        }
+      }
+    };
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanning]);
+
 
   const cancelExit = () => { setPendingExit(null); setAuthorized([]); };
 
-  const sendNotification = async (student, type, time, person = null) => {
-    try {
-      const formattedTime = new Date(time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-      let message = type === 'entry'
-        ? `Tu hijo/a ${student.name} ${student.lastName} acaba de ENTRAR al colegio a las ${formattedTime}`
-        : `Tu hijo/a ${student.name} ${student.lastName} acaba de SALIR del colegio a las ${formattedTime}`;
-      if (type === 'exit' && person) message += ` · Recogido por ${person.name} (${person.relation})`;
 
-      for (const parentId of (student.parentIds || [])) {
-        await addDoc(collection(db, 'notifications'), {
-          parentId, studentId: student.id, type, message, time,
-          read: false, createdAt: new Date().toISOString(),
-        });
-      }
-    } catch (e) { console.error('Notification error:', e); }
-  };
 
   const formatTime = (iso) => new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -308,12 +315,12 @@ export default function Scanner() {
 
         {scanning && (
           <div className="card" style={{padding:0, overflow:'hidden'}}>
-            {scanModeRef.current === 'pass' && (
+            {scanMode === 'pass' && (
               <div style={{padding:'12px 16px', background:'var(--info-bg)', color:'var(--info)', fontWeight:600, textAlign:'center'}}>
                 Escanea el pase de quien recoge
               </div>
             )}
-            {scanModeRef.current === 'pickupGroup' && (
+            {scanMode === 'pickupGroup' && (
               <div style={{padding:'12px 16px', background:'var(--warning-bg)', color:'#8B6F2F', fontWeight:600, textAlign:'center'}}>
                 Escanea el código de recogida (QR)
               </div>

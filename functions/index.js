@@ -1,4 +1,5 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onRequest } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
@@ -121,3 +122,226 @@ export const onChatMessageCreated = onDocumentCreated('conversations/{convId}/me
     '/messages'
   );
 });
+
+// 4) Notificación push en tiempo real cuando se crea un evento de calendario.
+export const onEventCreated = onDocumentCreated('events/{id}', async (event) => {
+  const ev = event.data?.data();
+  if (!ev?.scope || !ev?.audiences) return;
+
+  const targetUsers = new Set();
+  const auds = ev.audiences;
+  const isGeneral = auds.includes('general');
+  const forParents = isGeneral || auds.includes('parent') || auds.includes('student');
+  const forTeachers = isGeneral || auds.includes('teacher');
+
+  const scopeType = ev.scope.type;
+  const scopeValue = ev.scope.value;
+
+  // Padres
+  if (forParents) {
+    if (scopeType === 'all') {
+      const snap = await db.collection('users').where('role', '==', 'parent').get();
+      snap.forEach(d => targetUsers.add(d.id));
+    } else if (scopeType === 'plantel') {
+      const snap = await db.collection('students').where('plantel', '==', scopeValue).get();
+      snap.forEach(d => (d.data().parentIds || []).forEach(pid => targetUsers.add(pid)));
+    } else if (scopeType === 'class') {
+      const snap = await db.collection('students').where('classId', '==', scopeValue).get();
+      snap.forEach(d => (d.data().parentIds || []).forEach(pid => targetUsers.add(pid)));
+    }
+  }
+
+  // Maestros
+  if (forTeachers) {
+    if (scopeType === 'all') {
+      const snap = await db.collection('users').where('role', '==', 'teacher').get();
+      snap.forEach(d => targetUsers.add(d.id));
+    } else if (scopeType === 'plantel') {
+      const snap = await db.collection('users').where('role', '==', 'teacher').get();
+      snap.forEach(d => {
+        const u = d.data();
+        const classIds = u.classIds || [];
+        const hasPlantel = classIds.some(cid => cid.split('|')[0] === scopeValue);
+        if (hasPlantel) targetUsers.add(d.id);
+      });
+    } else if (scopeType === 'class') {
+      const snap = await db.collection('users').where('role', '==', 'teacher').where('classIds', 'array-contains', scopeValue).get();
+      snap.forEach(d => targetUsers.add(d.id));
+    }
+  }
+
+  // No notificar al autor
+  if (ev.authorId) {
+    targetUsers.delete(ev.authorId);
+  }
+
+  if (targetUsers.size === 0) return;
+
+  const tokensByUser = {};
+  await Promise.all([...targetUsers].map(async (uid) => {
+    const tokens = await tokensForUser(uid);
+    if (tokens.length) tokensByUser[uid] = tokens;
+  }));
+
+  const timeStr = ev.time ? ` a las ${ev.time}` : '';
+  const body = `Fecha: ${ev.date}${timeStr}. ${ev.description || ''}`.trim();
+
+  await sendToTokens(
+    tokensByUser,
+    { title: `Nuevo Evento: ${ev.title}`, body },
+    { type: 'event', eventId: event.params.id },
+    '/calendar'
+  );
+});
+
+// Helper de visibilidad de eventos en backend
+function canSeeEvent(ev, viewer) {
+  const { role } = viewer;
+  if (role === 'admin' || role === 'superadmin') return true;
+
+  const auds = ev.audiences || [];
+  let audienceOk = auds.length === 0 || auds.includes('general');
+  if (!audienceOk) {
+    if (role === 'parent') audienceOk = auds.includes('parent') || auds.includes('student');
+    else if (role === 'teacher') audienceOk = auds.includes('teacher');
+  }
+  if (!audienceOk) return false;
+
+  const sc = ev.scope || { type: 'all' };
+  if (sc.type === 'all') return true;
+  if (sc.type === 'plantel') return (viewer.planteles || []).includes(sc.value);
+  if (sc.type === 'class') return (viewer.classIds || []).includes(sc.value);
+  return false;
+}
+
+// Helpers para escape y formato iCalendar
+function escapeIcsText(str) {
+  if (!str) return '';
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '');
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function generateIcs(events) {
+  let ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Colegio Oliverio//NONSGML Calendar//ES',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:Calendario Oliverio',
+    'X-WR-TIMEZONE:America/Mexico_City'
+  ];
+
+  for (const ev of events) {
+    const dateClean = ev.date.replace(/-/g, '');
+    let dtStart;
+    let dtEnd;
+
+    if (ev.time) {
+      const [hours, minutes] = ev.time.split(':').map(Number);
+      dtStart = `DTSTART;TZID=America/Mexico_City:${dateClean}T${pad2(hours)}${pad2(minutes)}00`;
+
+      let endHours = hours + 1;
+      let endDateClean = dateClean;
+      if (endHours >= 24) {
+        endHours = endHours - 24;
+        const [y, m, d] = ev.date.split('-').map(Number);
+        const dateObj = new Date(y, m - 1, d);
+        dateObj.setDate(dateObj.getDate() + 1);
+        endDateClean = `${dateObj.getFullYear()}${pad2(dateObj.getMonth() + 1)}${pad2(dateObj.getDate())}`;
+      }
+      dtEnd = `DTEND;TZID=America/Mexico_City:${endDateClean}T${pad2(endHours)}${pad2(minutes)}00`;
+    } else {
+      dtStart = `DTSTART;VALUE=DATE:${dateClean}`;
+      const [y, m, d] = ev.date.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      dateObj.setDate(dateObj.getDate() + 1);
+      const nextDateClean = `${dateObj.getFullYear()}${pad2(dateObj.getMonth() + 1)}${pad2(dateObj.getDate())}`;
+      dtEnd = `DTEND;VALUE=DATE:${nextDateClean}`;
+    }
+
+    const stamp = ev.createdAt ? ev.createdAt.replace(/[-:]/g, '').split('.')[0] + 'Z' : '20260101T000000Z';
+
+    ics.push('BEGIN:VEVENT');
+    ics.push(`UID:${ev.id}@oliverio.edu.mx`);
+    ics.push(`DTSTAMP:${stamp}`);
+    ics.push(dtStart);
+    ics.push(dtEnd);
+    ics.push(`SUMMARY:${escapeIcsText(ev.title)}`);
+    if (ev.description) {
+      ics.push(`DESCRIPTION:${escapeIcsText(ev.description)}`);
+    }
+    if (ev.scopeLabel) {
+      ics.push(`LOCATION:${escapeIcsText(ev.scopeLabel)}`);
+    }
+    ics.push('END:VEVENT');
+  }
+
+  ics.push('END:VCALENDAR');
+  return ics.join('\r\n');
+}
+
+// 5) Endpoint HTTP para descargar el iCalendar feed personalizado (.ics)
+export const calendarFeed = onRequest(async (req, res) => {
+  try {
+    const uid = req.query.uid;
+    if (!uid) {
+      res.status(400).send('Falta UID de usuario.');
+      return;
+    }
+
+    const userSnap = await db.doc(`users/${uid}`).get();
+    if (!userSnap.exists) {
+      res.status(404).send('Usuario no encontrado.');
+      return;
+    }
+    const userData = userSnap.data();
+    const role = typeof userData.role === 'string' ? userData.role.trim().toLowerCase() : '';
+
+    let viewer = { role, planteles: [], classIds: [] };
+
+    if (role === 'teacher') {
+      const classIds = Array.isArray(userData.classIds) ? userData.classIds : [];
+      const planteles = [...new Set(classIds.map(c => c.split('|')[0]).filter(Boolean))];
+      viewer.classIds = classIds;
+      viewer.planteles = planteles;
+    } else if (role === 'parent') {
+      const studentsSnap = await db.collection('students').where('parentIds', 'array-contains', uid).get();
+      const planteles = new Set();
+      const classIds = new Set();
+      studentsSnap.forEach(d => {
+        const s = d.data();
+        if (s.plantel) planteles.add(s.plantel);
+        if (s.classId) classIds.add(s.classId);
+      });
+      viewer.planteles = [...planteles];
+      viewer.classIds = [...classIds];
+    }
+
+    const eventsSnap = await db.collection('events').get();
+    const allEvents = [];
+    eventsSnap.forEach(d => {
+      allEvents.push({ id: d.id, ...d.data() });
+    });
+
+    const visibleEvents = allEvents.filter(e => canSeeEvent(e, viewer));
+
+    const icsContent = generateIcs(visibleEvents);
+
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+    res.send(icsContent);
+  } catch (err) {
+    console.error('Error generating calendar feed:', err);
+    res.status(500).send('Error interno del servidor.');
+  }
+});
+

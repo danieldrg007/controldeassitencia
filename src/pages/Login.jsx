@@ -5,11 +5,9 @@ import { Eye, EyeOff } from 'lucide-react';
 import logo from '../assets/logo.jpg';
 
 export default function Login() {
-  const { login, register } = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [isRegister, setIsRegister] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,32 +26,12 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      if (isRegister) {
-        await register(email, password, {
-          displayName: displayName.trim() || email,
-          role: 'parent'
-        });
-      } else {
-        await login(email, password);
-      }
+      await login(email, password);
     } catch (err) {
       console.error(err);
-      if (err.code === 'auth/email-already-in-use') {
-        setError('Ese correo ya existe. Cambia a Iniciar Sesión o usa otro correo.');
-      } else if (err.code === 'auth/weak-password') {
-        setError('La contraseña debe tener al menos 6 caracteres.');
-      } else if (err.code === 'permission-denied') {
-        setError('La cuenta se creó en Auth, pero Firestore no permitió guardar el perfil. Revisa las reglas.');
-      } else {
-        setError(isRegister ? 'No se pudo crear la cuenta.' : 'Credenciales incorrectas. Intente de nuevo.');
-      }
+      setError('Credenciales incorrectas. Intente de nuevo.');
     }
     setLoading(false);
-  };
-
-  const toggleMode = () => {
-    setError('');
-    setIsRegister(value => !value);
   };
 
   return (
@@ -63,22 +41,10 @@ export default function Login() {
         <h1 className="login-title">Control de Acceso</h1>
         <p className="login-subtitle">Colegio Oliverio Cromwell</p>
 
-        <div className="seg seg-full" style={{marginBottom:20}}>
-          <button type="button" className={!isRegister ? 'active' : ''} onClick={() => { if (isRegister) toggleMode(); }} disabled={loading}>Iniciar sesión</button>
-          <button type="button" className={isRegister ? 'active' : ''} onClick={() => { if (!isRegister) toggleMode(); }} disabled={loading}>Crear cuenta</button>
-        </div>
-
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} style={{marginTop:20}}>
           {error && (
             <div style={{background:'var(--danger-bg)',color:'var(--danger)',padding:'10px 14px',borderRadius:'var(--radius-sm)',marginBottom:16,fontSize:'0.85rem',fontWeight:500}}>
               {error}
-            </div>
-          )}
-
-          {isRegister && (
-            <div className="form-group" style={{textAlign:'left'}}>
-              <label className="form-label">Nombre completo</label>
-              <input className="form-input" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Tu nombre" required />
             </div>
           )}
 
@@ -96,9 +62,13 @@ export default function Login() {
           </div>
 
           <button type="submit" className="btn btn-primary btn-lg w-full" disabled={loading} style={{marginTop:8}}>
-            {loading ? (isRegister ? 'Creando cuenta...' : 'Ingresando...') : (isRegister ? 'Crear Cuenta' : 'Iniciar Sesión')}
+            {loading ? 'Ingresando...' : 'Iniciar Sesión'}
           </button>
         </form>
+
+        <p style={{marginTop:18, fontSize:'0.82rem', color:'var(--gris-500)', textAlign:'center'}}>
+          ¿Necesitas una cuenta? Contacta a la administración del colegio.
+        </p>
       </div>
     </div>
   );

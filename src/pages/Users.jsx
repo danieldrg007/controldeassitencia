@@ -4,7 +4,7 @@ import { db, secondaryAuth, auth } from '../firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check, FileSpreadsheet } from 'lucide-react';
-import { ROLE_LABELS, NOMBRE_PLANTELES, nivelesDePlantel, gradosDeNivel, GRUPOS, makeClassId, classLabel, parseClassId } from '../config/colegio';
+import { ROLE_LABELS, NOMBRE_PLANTELES, nivelesDePlantel, gradosDeNivel, GRUPOS, makeClassId } from '../config/colegio';
 import Avatar from '../components/Avatar';
 
 const ROLE_BADGE = { superadmin: 'badge-danger', admin: 'badge-gold', teacher: 'badge-info', guard: 'badge-warning', parent: 'badge-success', kiosk: 'badge-info' };
@@ -59,7 +59,7 @@ export default function Users() {
   const [showLinkModal, setShowLinkModal] = useState(null);
   const [editUser, setEditUser] = useState(null);
   const [deleteUser, setDeleteUser] = useState(null);
-  const [baseUrl, setBaseUrl] = useState(window.location.origin);
+  const [baseUrl] = useState(window.location.origin);
   const [copiedId, setCopiedId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -74,9 +74,10 @@ export default function Users() {
 
   useEffect(() => { loadUsers(); }, []);
 
-  const generatePassword = () => Math.random().toString(36).slice(-8);
+  // Contraseña inicial por defecto; el usuario la cambia luego en su perfil.
+  const DEFAULT_PASSWORD = '123456';
 
-  const openCreate = () => { setForm({ ...emptyForm, password: generatePassword() }); setShowModal(true); };
+  const openCreate = () => { setForm({ ...emptyForm, password: DEFAULT_PASSWORD }); setShowModal(true); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -308,7 +309,7 @@ export default function Users() {
                 <input type="email" className="form-input" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required />
               </div>
               <div className="form-group">
-                <label className="form-label">Contraseña (Generada automáticamente)</label>
+                <label className="form-label">Contraseña inicial (por defecto 123456)</label>
                 <input className="form-input" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required />
               </div>
               {renderRoleFields()}

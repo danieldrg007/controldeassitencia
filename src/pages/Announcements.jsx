@@ -1,25 +1,32 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, getDocs, addDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { Megaphone, Send, Trash2 } from 'lucide-react';
+import { Megaphone, Send, ImagePlus, Paperclip, X } from 'lucide-react';
 import { NOMBRE_PLANTELES, todasLasClases } from '../config/colegio';
+import { PRIORIDADES, CATEGORIAS, sortAnnouncements } from '../config/avisos';
+import { uploadAnnouncementFile, uploadAnnouncementCover, deleteAnnouncementFiles, humanSize } from '../utils/announcements';
+import AnnouncementCard from '../components/AnnouncementCard';
 
 const clases = todasLasClases();
+const emptyForm = { type: 'all', value: '', title: '', body: '', priority: 'normal', category: 'general' };
 
 export default function Announcements() {
   const { user, userData } = useAuth();
   const [list, setList] = useState([]);
-  const [form, setForm] = useState({ type: 'all', value: '', title: '', body: '' });
+  const [form, setForm] = useState(emptyForm);
+  const [coverFile, setCoverFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState('');
   const [msg, setMsg] = useState('');
+  const [lightbox, setLightbox] = useState(null);
 
   const load = async () => {
     const snap = await getDocs(collection(db, 'announcements'));
     const arr = [];
     snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
-    arr.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    setList(arr);
+    setList(sortAnnouncements(arr));
   };
 
   useEffect(() => { load(); }, []);
@@ -30,47 +37,79 @@ export default function Announcements() {
     return clases.find(c => c.id === form.value)?.label || form.value;
   };
 
+  const addFiles = (e) => {
+    const picked = Array.from(e.target.files || []);
+    setFiles(prev => [...prev, ...picked]);
+    e.target.value = '';
+  };
+  const removeFile = (i) => setFiles(prev => prev.filter((_, idx) => idx !== i));
+
+  const resetForm = () => { setForm(emptyForm); setCoverFile(null); setFiles([]); };
+
   const submit = async (e) => {
     e.preventDefault();
     if (form.type !== 'all' && !form.value) { alert('Selecciona el destino'); return; }
     setSaving(true);
     try {
-      await addDoc(collection(db, 'announcements'), {
+      // Id pregenerado: lo usamos como carpeta en Storage y para escribir el doc
+      // una sola vez (así la Cloud Function ya recibe el aviso completo).
+      const ref = doc(collection(db, 'announcements'));
+      const id = ref.id;
+
+      let cover = null;
+      if (coverFile) { setProgress('Subiendo portada...'); cover = await uploadAnnouncementCover(id, coverFile); }
+
+      const attachments = [];
+      for (let i = 0; i < files.length; i++) {
+        setProgress(`Subiendo archivo ${i + 1} de ${files.length}...`);
+        attachments.push(await uploadAnnouncementFile(id, files[i]));
+      }
+
+      setProgress('Publicando...');
+      await setDoc(ref, {
         title: form.title,
         body: form.body,
+        priority: form.priority,
+        category: form.category,
         scope: { type: form.type, value: form.type === 'all' ? 'all' : form.value },
         scopeLabel: scopeLabel(),
+        coverUrl: cover?.url || null,
+        coverPath: cover?.path || null,
+        attachments,
         authorId: user.uid,
         authorName: userData?.displayName || 'Administración',
         authorRole: 'admin',
         createdAt: new Date().toISOString(),
       });
+
       setMsg('Aviso publicado ✅');
-      setForm({ type: 'all', value: '', title: '', body: '' });
+      resetForm();
       setTimeout(() => setMsg(''), 4000);
       load();
-    } catch (err) { alert('Error: ' + err.message); }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+    setProgress('');
     setSaving(false);
   };
 
-  const remove = async (id) => {
-    if (!confirm('¿Eliminar este aviso?')) return;
-    await deleteDoc(doc(db, 'announcements', id));
+  const remove = async (a) => {
+    if (!confirm('¿Eliminar este aviso? También se borrarán sus archivos adjuntos.')) return;
+    await deleteAnnouncementFiles(a.id); // limpia Storage antes de borrar el doc
+    await deleteDoc(doc(db, 'announcements', a.id));
     load();
   };
-
-  const fmt = (iso) => iso ? new Date(iso).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
 
   return (
     <div className="page-container animate-in">
       <div className="page-header">
         <h1 className="page-title">Avisos y Anuncios</h1>
-        <p className="page-subtitle">Publica avisos para todo el colegio, por plantel o por grupo</p>
+        <p className="page-subtitle">Publica avisos con imágenes y archivos para todo el colegio, por plantel o por grupo</p>
       </div>
 
-      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:24, alignItems:'start'}}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24, alignItems: 'start' }}>
         <div className="card">
-          <h3 className="card-title" style={{marginBottom:16}}><Megaphone size={18} style={{verticalAlign:'middle', marginRight:6}}/> Nuevo aviso</h3>
+          <h3 className="card-title" style={{ marginBottom: 16 }}><Megaphone size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Nuevo aviso</h3>
           <form onSubmit={submit}>
             <div className="form-group">
               <label className="form-label">Destino</label>
@@ -98,6 +137,22 @@ export default function Announcements() {
                 </select>
               </div>
             )}
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Prioridad</label>
+                <select className="form-select" value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
+                  {Object.entries(PRIORIDADES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Categoría</label>
+                <select className="form-select" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
+                  {Object.entries(CATEGORIAS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+            </div>
+
             <div className="form-group">
               <label className="form-label">Título</label>
               <input className="form-input" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} required />
@@ -106,34 +161,69 @@ export default function Announcements() {
               <label className="form-label">Mensaje</label>
               <textarea className="form-input" rows={5} value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} required />
             </div>
-            {msg && <p className="badge badge-success" style={{marginBottom:12}}>{msg}</p>}
-            <button type="submit" className="btn btn-primary w-full" disabled={saving}><Send size={16}/> {saving ? 'Publicando...' : 'Publicar aviso'}</button>
+
+            <div className="form-group">
+              <label className="form-label">Imagen de portada (opcional)</label>
+              {coverFile ? (
+                <div style={{ position: 'relative' }}>
+                  <img src={URL.createObjectURL(coverFile)} alt="portada" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8 }} />
+                  <button type="button" onClick={() => setCoverFile(null)} className="btn btn-sm btn-danger" style={{ position: 'absolute', top: 8, right: 8 }}><X size={14} /></button>
+                </div>
+              ) : (
+                <label className="btn btn-secondary w-full" style={{ cursor: 'pointer' }}>
+                  <ImagePlus size={16} /> Elegir imagen
+                  <input type="file" accept="image/*" hidden onChange={e => setCoverFile(e.target.files?.[0] || null)} />
+                </label>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Archivos adjuntos (PDF, imágenes, etc.)</label>
+              <label className="btn btn-secondary w-full" style={{ cursor: 'pointer' }}>
+                <Paperclip size={16} /> Agregar archivos
+                <input type="file" multiple hidden onChange={addFiles} />
+              </label>
+              {files.length > 0 && (
+                <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                  {files.map((f, i) => (
+                    <div key={i} className="flex justify-between items-center" style={{ gap: 8, fontSize: '0.82rem', padding: '6px 10px', border: '1px solid var(--gris-200)', borderRadius: 8 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: 'var(--gris-500)', fontSize: '0.72rem' }}>{humanSize(f.size)}</span>
+                        <button type="button" onClick={() => removeFile(i)} className="btn btn-sm btn-danger"><X size={12} /></button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {msg && <p className="badge badge-success" style={{ marginBottom: 12 }}>{msg}</p>}
+            <button type="submit" className="btn btn-primary w-full" disabled={saving}>
+              <Send size={16} /> {saving ? (progress || 'Publicando...') : 'Publicar aviso'}
+            </button>
           </form>
         </div>
 
         <div className="card">
-          <h3 className="card-title" style={{marginBottom:16}}>Avisos publicados ({list.length})</h3>
+          <h3 className="card-title" style={{ marginBottom: 16 }}>Avisos publicados ({list.length})</h3>
           {list.length === 0 ? (
             <div className="empty-state"><div className="empty-state-icon">📣</div><p className="empty-state-text">Aún no hay avisos</p></div>
           ) : (
             <div className="flex flex-col gap-3">
               {list.map(a => (
-                <div key={a.id} style={{padding:14, border:'1px solid var(--gris-200)', borderLeft:'4px solid var(--guinda)', borderRadius:'var(--radius-sm)'}}>
-                  <div className="flex justify-between items-center" style={{marginBottom:6, gap:8}}>
-                    <strong style={{display:'flex', alignItems:'center', gap:8}}><Megaphone size={15} color="var(--guinda)"/> {a.title}</strong>
-                    <span className="badge badge-info">{a.scopeLabel}</span>
-                  </div>
-                  <p style={{fontSize:'0.9rem', color:'var(--gris-700)', whiteSpace:'pre-wrap'}}>{a.body}</p>
-                  <div className="flex justify-between items-center" style={{marginTop:8}}>
-                    <span style={{fontSize:'0.75rem', color:'var(--gris-500)'}}>{a.authorName} · {fmt(a.createdAt)}</span>
-                    <button onClick={() => remove(a.id)} className="btn btn-sm btn-danger"><Trash2 size={14}/></button>
-                  </div>
-                </div>
+                <AnnouncementCard key={a.id} a={a} onDelete={remove} onImageClick={setLightbox} />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <img src={lightbox} alt="" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
+        </div>
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X, BookOpen } from 'lucide-react';
+import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X, BookOpen, CalendarDays } from 'lucide-react';
 import logo from '../assets/logo.jpg';
 import NotificationBell from './NotificationBell';
 
@@ -76,6 +76,9 @@ export default function Navbar() {
           <NavLink to="/parent" className={linkClass}><UserCircle size={16} /> Mis Hijos</NavLink>
         )}
         {(isAdmin || isTeacher || role === 'parent') && (
+          <NavLink to="/calendar" className={linkClass}><CalendarDays size={16} /> Calendario</NavLink>
+        )}
+        {(isAdmin || isTeacher || role === 'parent') && (
           <NavLink to="/messages" className={linkClass}>
             <MessageCircle size={16} /> Mensajes
             {unread > 0 && (
@@ -89,20 +92,20 @@ export default function Navbar() {
         {/* Usuario + salir dentro del menú colapsable en móvil */}
         <div className="navbar-user navbar-user--menu">
           <span>{userData?.displayName || 'Usuario'}</span>
-          <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.15)', color:'#fff'}} title="Cerrar sesión">
-            <LogOut size={18} />
+          <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.18)', color:'#fff'}} title="Cerrar sesión">
+            <LogOut size={20} />
           </button>
         </div>
       </div>
 
       {/* Acciones de la derecha: campanita (siempre), usuario (escritorio) y menú (móvil) */}
-      <div className="navbar-actions" style={{display:'flex', alignItems:'center', gap:8}}>
+      <div className="navbar-actions">
         <NotificationBell unread={unread} hasChat={hasChat} />
 
         <div className="navbar-user navbar-user--bar">
           <span>{userData?.displayName || 'Usuario'}</span>
-          <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.15)', color:'#fff'}} title="Cerrar sesión">
-            <LogOut size={18} />
+          <button onClick={handleLogout} className="btn btn-icon" style={{background:'rgba(255,255,255,0.18)', color:'#fff'}} title="Cerrar sesión">
+            <LogOut size={20} />
           </button>
         </div>
 

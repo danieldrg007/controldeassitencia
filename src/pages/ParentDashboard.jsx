@@ -5,6 +5,8 @@ import { updateEmail, updatePassword, updateProfile, EmailAuthProvider, reauthen
 import { useAuth } from '../context/AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
 import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock, Camera, Pencil, RefreshCw, StickyNote, GraduationCap } from 'lucide-react';
+import AnnouncementCard from '../components/AnnouncementCard';
+import { sortAnnouncements } from '../config/avisos';
 import {
   NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel, makeClassId,
 } from '../config/colegio';
@@ -53,6 +55,9 @@ export default function ParentDashboard() {
   const [showQR, setShowQR] = useState(null);
   const [showPass, setShowPass] = useState(null);
   const [lightbox, setLightbox] = useState(null); // dataURL de la foto a ampliar (estilo WhatsApp)
+  const [readAt, setReadAt] = useState(userData?.announcementsReadAt || ''); // última vez que vio avisos
+  const [unreadIds, setUnreadIds] = useState(() => new Set()); // ids resaltados "NUEVO" mientras ve la pestaña
+  const [urgentDestacados, setUrgentDestacados] = useState([]); // urgentes recientes para la pantalla de inicio
   const [photoBusy, setPhotoBusy] = useState(false);
   const [myPhoto, setMyPhoto] = useState(userData?.photo || '');
   const [updating, setUpdating] = useState(false);
@@ -244,11 +249,32 @@ export default function ParentDashboard() {
           (sc.type === 'class' && classIds.has(sc.value));
         if (relevant) list.push(a);
       });
-      list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-      setAnnouncements(list);
+      const sorted = sortAnnouncements(list);
+      setAnnouncements(sorted);
+      // Urgentes recientes (14 días) para destacar en la pantalla de inicio.
+      const cutoff = Date.now() - 14 * 24 * 3600 * 1000;
+      setUrgentDestacados(sorted.filter(a => a.priority === 'urgente' && new Date(a.createdAt || 0).getTime() >= cutoff));
     }, (err) => console.error('Error avisos', err));
     return unsub;
   }, [students]);
+
+  // Mantiene sincronizada la marca de "última lectura" con el perfil.
+  useEffect(() => { setReadAt(userData?.announcementsReadAt || ''); }, [userData]);
+
+  // Al abrir la pestaña de Avisos: capturamos cuáles eran nuevos (para resaltarlos
+  // mientras los ve) y marcamos todo como leído en el perfil del padre.
+  useEffect(() => {
+    if (activeTab !== 'avisos' || !user) return;
+    const nuevos = announcements.filter(a => !readAt || (a.createdAt || '') > readAt);
+    if (!nuevos.length) return;
+    setUnreadIds(new Set(nuevos.map(a => a.id)));
+    const now = new Date().toISOString();
+    setReadAt(now);
+    updateDoc(doc(db, 'users', user.uid), { announcementsReadAt: now }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, announcements, user]);
+
+  const unreadCount = announcements.filter(a => !readAt || (a.createdAt || '') > readAt).length;
 
   const handleAddStudent = async (e) => {
     e.preventDefault();
@@ -398,7 +424,7 @@ export default function ParentDashboard() {
           return (
             <button key={t.id} className={`tab ${activeTab === t.id ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>
               <Icon size={14} style={{marginRight:4,verticalAlign:'middle'}}/> {t.label}
-              {t.id === 'avisos' && announcements.length > 0 && <span className="badge badge-danger" style={{marginLeft:6}}>{announcements.length}</span>}
+              {t.id === 'avisos' && unreadCount > 0 && <span className="badge badge-danger" style={{marginLeft:6}}>{unreadCount}</span>}
             </button>
           );
         })}
@@ -406,6 +432,13 @@ export default function ParentDashboard() {
 
       {activeTab === 'status' && (
         <>
+          {urgentDestacados.length > 0 && (
+            <div className="mb-4 flex flex-col gap-3">
+              {urgentDestacados.map(a => (
+                <AnnouncementCard key={a.id} a={a} onImageClick={setLightbox} unread={unreadIds.has(a.id)} />
+              ))}
+            </div>
+          )}
           {pushState !== 'granted' && pushState !== 'unsupported' && (
             <div className="card mb-4" style={{display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap', background:'var(--info-bg)'}}>
               <span style={{display:'flex', alignItems:'center', gap:8, color:'var(--info)', fontWeight:600}}>
@@ -436,7 +469,7 @@ export default function ParentDashboard() {
             </div>
           ) : selectedStudent && (
             <>
-            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px'}}>
+            <div className="pp-grid">
               {/* Tarjeta hero del alumno */}
               <div className="card" style={{padding:0, overflow:'hidden'}}>
                 <div style={{background: HERO.grad, color:'#fff', padding:'28px 20px', textAlign:'center'}}>
@@ -559,14 +592,14 @@ export default function ParentDashboard() {
 
       {activeTab === 'family' && (
         <>
-          <div className="flex justify-between items-center mb-4">
-            <p style={{color:'var(--gris-500)', fontSize:'0.9rem'}}>Personas autorizadas para recoger a tus hijos. Cada una tiene su credencial digital con foto y QR.</p>
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+            <p style={{color:'var(--gris-500)', fontSize:'0.9rem', flex:'1 1 240px', minWidth:0}}>Personas autorizadas para recoger a tus hijos. Cada una tiene su credencial digital con foto y QR.</p>
             <button onClick={openAddMember} className="btn btn-primary"><Plus size={16}/> Agregar persona</button>
           </div>
           {familyMembers.length === 0 ? (
             <div className="card"><div className="empty-state"><div className="empty-state-icon">👪</div><p className="empty-state-text">Aún no agregas personas autorizadas.</p></div></div>
           ) : (
-            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px, 1fr))', gap:16}}>
+            <div className="pp-grid">
               {familyMembers.map(m => (
                 <div key={m.id} className="card" style={{textAlign:'center'}}>
                   <div style={{display:'flex', justifyContent:'center', marginBottom:10}}>
@@ -591,7 +624,7 @@ export default function ParentDashboard() {
       )}
 
       {activeTab === 'recogidas' && (
-        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:16}}>
+        <div className="pp-grid">
           {/* Mi código de recogida */}
           <div className="card" style={{textAlign:'center'}}>
             <KeyRound size={32} color="var(--guinda)" style={{margin:'0 auto 8px'}}/>
@@ -660,14 +693,7 @@ export default function ParentDashboard() {
           ) : (
             <div className="flex flex-col gap-3">
               {announcements.map(a => (
-                <div key={a.id} className="card" style={{borderLeft:'4px solid var(--guinda)'}}>
-                  <div className="flex justify-between items-center" style={{marginBottom:6, gap:8}}>
-                    <h3 style={{fontWeight:700, display:'flex', alignItems:'center', gap:8}}><Megaphone size={16} color="var(--guinda)"/> {a.title}</h3>
-                    <span className="badge badge-info">{a.scopeLabel || (a.scope?.type === 'all' ? 'General' : a.scope?.value)}</span>
-                  </div>
-                  <p style={{fontSize:'0.9rem', color:'var(--gris-700)', whiteSpace:'pre-wrap'}}>{a.body}</p>
-                  <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:8}}>{a.authorName} · {formatDate(a.createdAt)}</p>
-                </div>
+                <AnnouncementCard key={a.id} a={a} onImageClick={setLightbox} unread={unreadIds.has(a.id)} />
               ))}
             </div>
           )}
@@ -936,8 +962,8 @@ export default function ParentDashboard() {
             <button key={t.id} className={`pp-tab ${isActive ? 'active' : ''}`} onClick={() => setActiveTab(t.id)}>
               <Icon size={20} strokeWidth={isActive ? 2.4 : 2} />
               <span>{t.short}</span>
-              {t.id === 'avisos' && announcements.length > 0 && (
-                <span className="pp-tab-dot">{announcements.length > 9 ? '9+' : announcements.length}</span>
+              {t.id === 'avisos' && unreadCount > 0 && (
+                <span className="pp-tab-dot">{unreadCount > 9 ? '9+' : unreadCount}</span>
               )}
             </button>
           );

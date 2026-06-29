@@ -179,6 +179,26 @@ service cloud.firestore {
       );
     }
 
+    // ---------------- CALENDARIO / EVENTOS ----------------
+    // audiences: lista con "general"|"parent"|"teacher"|"student".
+    // scope.type: "all" | "plantel" | "class". El filtrado por audiencia/plantel
+    // se hace en el cliente (igual que avisos); aquí solo se controla quién crea.
+    match /events/{eventId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (
+          isTeacher() &&
+          request.resource.data.scope.type == "class" &&
+          teacherOwnsClass(request.resource.data.scope.value)
+        )
+      );
+      allow update, delete: if signedIn() && (
+        isAdmin() ||
+        (isTeacher() && resource.data.authorId == request.auth.uid)
+      );
+    }
+
     // ---------------- NOTIFICACIONES (push individual al padre) ----------------
     match /notifications/{notificationId} {
       allow read: if signedIn() && (

@@ -101,12 +101,12 @@ export default function Students() {
       <body><h2>Colegio Oliverio Cromwell</h2><h3>${student.name} ${student.lastName}</h3>
       <p>${student.grado || ''} ${student.nivel || ''} ${student.grupo || ''}</p>
       <div id="qr"></div>
-      <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"><\/script>
+      <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
       <script>QRCode.toCanvas(document.createElement('canvas'),
         '${student.qrCode}',{width:300},function(err,canvas){
         document.getElementById('qr').appendChild(canvas);
         setTimeout(()=>window.print(),500);
-      });<\/script></body></html>
+      });</script></body></html>
     `);
   };
 
@@ -198,7 +198,7 @@ export default function Students() {
           </div>
         ) : (
           <div className="table-container">
-            <table>
+            <table className="table-cards">
               <thead><tr><th>Alumno</th><th>Plantel</th><th>Grupo</th><th>QR</th><th>Acciones</th></tr></thead>
               <tbody>
                 {filtered.map(s => (
@@ -209,14 +209,14 @@ export default function Students() {
                         <span style={{fontWeight:600}}>{s.lastName} {s.name}</span>
                       </div>
                     </td>
-                    <td>{s.plantel || '—'}</td>
-                    <td>{s.grado} {s.nivel} {s.grupo && `"${s.grupo}"`}</td>
-                    <td>
+                    <td data-label="Plantel">{s.plantel || '—'}</td>
+                    <td data-label="Grupo">{s.grado} {s.nivel} {s.grupo && `"${s.grupo}"`}</td>
+                    <td data-label="QR">
                       <button onClick={() => setShowQR(s)} className="btn btn-sm btn-secondary">
                         <QrCode size={14}/> Ver QR
                       </button>
                     </td>
-                    <td>
+                    <td data-label="">
                       <div className="flex gap-2">
                         <button onClick={() => handleEdit(s)} className="btn btn-sm btn-secondary"><Edit size={14}/></button>
                         <button onClick={() => printQR(s)} className="btn btn-sm btn-gold"><Download size={14}/></button>

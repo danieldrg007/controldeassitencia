@@ -257,7 +257,7 @@ export default function Messages() {
 
   return (
     <div className="page-container animate-in">
-      <div className="page-header">
+      <div className="page-header msg-page-header">
         <h1 className="page-title">Mensajes</h1>
         <p className="page-subtitle">Comunicación entre profesores, padres y administración</p>
       </div>
@@ -336,7 +336,7 @@ export default function Messages() {
                     const mine = m.senderId === uid;
                     return (
                       <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
-                        <div style={{ maxWidth: '75%', background: mine ? 'var(--guinda)' : '#fff', color: mine ? '#fff' : 'var(--gris-900)', padding: '8px 12px', borderRadius: mine ? '14px 14px 4px 14px' : '14px 14px 14px 4px', boxShadow: 'var(--shadow-sm)' }}>
+                        <div className="msg-bubble" style={{ maxWidth: '75%', background: mine ? 'var(--guinda)' : '#fff', color: mine ? '#fff' : 'var(--gris-900)', padding: '8px 12px', borderRadius: mine ? '14px 14px 4px 14px' : '14px 14px 14px 4px', boxShadow: 'var(--shadow-sm)' }}>
                           {!mine && active.type === 'group' && (
                             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--guinda)', marginBottom: 2 }}>{m.senderName}</div>
                           )}

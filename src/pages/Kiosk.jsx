@@ -174,7 +174,11 @@ export default function Kiosk() {
         html5QrRef.current = scanner;
         await scanner.start(
           { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 280, height: 280 } },
+          {
+            fps: 10,
+            // Recuadro adaptable al tamaño del visor (tablets y teléfonos).
+            qrbox: (vw, vh) => { const s = Math.floor(Math.min(vw, vh) * 0.75); return { width: s, height: s }; },
+          },
           (decodedText) => {
             if (modeRef.current === 'pickup') { handlePickupScan(decodedText); return; }
             if (busyRef.current) return;
@@ -225,16 +229,16 @@ export default function Kiosk() {
         {isKioskAccount ? <><LogOut size={16}/> Cerrar sesión</> : <><ArrowLeft size={16}/> Salir del kiosko</>}
       </button>
 
-      <div style={{position:'absolute',top:16,right:24,textAlign:'right',opacity:0.8}}>
+      <div className="kiosk-brand" style={{position:'absolute',top:16,right:24,textAlign:'right',opacity:0.8}}>
         <div style={{display:'flex',alignItems:'center',gap:10,justifyContent:'flex-end'}}>
           <img src={logo} alt="Logo" style={{width:36,height:36,borderRadius:'50%',objectFit:'cover'}} />
-          <strong>Colegio Oliverio Cromwell</strong>
+          <strong className="kiosk-brand-name">Colegio Oliverio Cromwell</strong>
         </div>
         <div style={{fontSize:'0.85rem',textTransform:'capitalize'}}>{clock}</div>
       </div>
 
       <div style={{textAlign:'center',marginBottom:24}}>
-        <h1 style={{fontSize:'2rem',fontWeight:800,marginBottom:4}}>Checador de Asistencia</h1>
+        <h1 className="kiosk-title" style={{fontSize:'2rem',fontWeight:800,marginBottom:4}}>Checador de Asistencia</h1>
         {kioskPlantel && (
           <div style={{display:'inline-block',background:'var(--guinda)',color:'#fff',fontWeight:700,padding:'4px 16px',borderRadius:999,marginBottom:8}}>
             Plantel {kioskPlantel}
@@ -243,7 +247,7 @@ export default function Kiosk() {
         <p style={{opacity:0.7,display:'flex',alignItems:'center',gap:8,justifyContent:'center'}}><ScanLine size={18}/> Acerca tu código QR a la cámara</p>
       </div>
 
-      <div style={{width:340,maxWidth:'90vw',borderRadius:'var(--radius-lg)',overflow:'hidden',boxShadow:'var(--shadow-xl)'}}>
+      <div style={{width:'min(440px, 86vw)',borderRadius:'var(--radius-lg)',overflow:'hidden',boxShadow:'var(--shadow-xl)'}}>
         <div id="kiosk-reader" style={{width:'100%'}}></div>
       </div>
 
