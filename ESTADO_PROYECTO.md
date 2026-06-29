@@ -154,7 +154,7 @@ export PATH="$HOME/google-cloud-sdk/bin:$PATH"
 
 ## 11. Pendientes / próximos pasos
 
-- [ ] `git push` (10 commits locales sin subir a origin) + commitear el avance de avisos.
+- [ ] `git push` (11 commits locales sin subir a origin, incluyendo el de avisos y calendario).
 - [ ] Promedios / boleta de calificaciones; configurar escala y periodos desde UI.
 - [ ] Captura de notas por admin (las reglas ya lo permiten, falta UI).
 - [ ] Implementar `face-api.js` (instalado, sin usar — deuda técnica).
@@ -195,3 +195,4 @@ Se pasó de **35 errores → 0 errores** (`npm run lint` ahora limpio; build OK)
 - **2026-06-29:** portal del padre responsive — utilidad `.pp-grid` (`minmax(min(100%,280px),1fr)`) que reemplaza las rejillas con `minmax(300px,1fr)` que desbordaban en teléfonos angostos (hero, recogidas, familia); encabezado de Grupo Familiar con `flex-wrap`; barra inferior con etiquetas en ellipsis, pill activo y compactado ≤380px; `.grid-2` a 1 columna ≤480px. Desplegado.
 - **2026-06-29:** fix UI móvil/tablet — la campanita (y botones de ícono) se recortaban en móvil porque la regla `.btn { padding }` de la media query pisaba el `p-0` de `.btn-icon` (con box-border el ícono quedaba en ~4px). Se excluyó `.btn-icon` de ese override, se blindó con `shrink-0`, y se hicieron táctiles (44px, íconos 24px) la campana/cerrar sesión/menú en ≤900px. `.navbar-actions` ahora es clase CSS. Desplegado.
 - **2026-06-29:** avisos mejorados — adjuntos (PDF/imágenes/archivos) y portada en **Firebase Storage**, prioridad (Normal/Importante/Urgente), categoría con color (General/Evento/Pago/Académico/Salud), no leídos por padre (`announcementsReadAt`) con badge real, urgentes destacados en la pantalla de inicio del padre, y borrado en cascada de archivos. Reglas de Storage y **hosting desplegados (en vivo)**. Archivos nuevos: `src/config/avisos.js`, `src/utils/announcements.js`, `src/components/AnnouncementCard.jsx`, `storage.rules`. Build OK, lint 0 errores.
+- **2026-06-29:** Implementación de la sincronización de calendario (notificaciones push, feed iCalendar y botón Google Calendar), correcciones de responsividad y limpieza de warnings de linter en `Scanner.jsx`. Commiteado localmente.
