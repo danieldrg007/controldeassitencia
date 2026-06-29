@@ -154,7 +154,7 @@ export PATH="$HOME/google-cloud-sdk/bin:$PATH"
 
 ## 11. Pendientes / próximos pasos
 
-- [ ] `git push` (11 commits locales sin subir a origin, incluyendo el de avisos y calendario).
+- [x] `git push` (Todos los cambios de avisos, calendario, responsividad y linter subidos con éxito).
 - [ ] Promedios / boleta de calificaciones; configurar escala y periodos desde UI.
 - [ ] Captura de notas por admin (las reglas ya lo permiten, falta UI).
 - [ ] Implementar `face-api.js` (instalado, sin usar — deuda técnica).
