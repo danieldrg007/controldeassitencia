@@ -40,6 +40,30 @@ export const GRUPOS = ['A', 'B'];
 // Periodos de evaluación para las calificaciones.
 export const PERIODOS = ['Periodo 1', 'Periodo 2', 'Periodo 3', 'Final'];
 
+// Hora regular de salida por nivel (formato HH:MM, 24h). Una salida registrada
+// ANTES de esta hora se considera "salida anticipada" y pide motivo.
+export const HORA_SALIDA = {
+  Preescolar: '13:30',
+  Primaria: '14:00',
+  Secundaria: '14:30',
+  Preparatoria: '15:00',
+};
+
+export const esSalidaAnticipada = (nivel, date = new Date()) => {
+  const hhmm = HORA_SALIDA[nivel] || '14:00';
+  const [h, m] = hhmm.split(':').map(Number);
+  return date.getHours() * 60 + date.getMinutes() < h * 60 + m;
+};
+
+// Motivos predefinidos para salidas anticipadas.
+export const MOTIVOS_SALIDA_ANTICIPADA = [
+  'Cita médica',
+  'Malestar / enfermedad',
+  'Asunto familiar',
+  'Trámite escolar',
+  'Otro',
+];
+
 export const NOMBRE_PLANTELES = Object.keys(PLANTELES);
 
 export const nivelesDePlantel = (plantel) => PLANTELES[plantel] || [];
@@ -57,6 +81,45 @@ export const parseClassId = (classId) => {
 // Etiqueta legible. Ej: 3° Primaria "A" · Tlalpan
 export const classLabel = ({ plantel, nivel, grado, grupo }) =>
   `${grado} ${nivel} "${grupo}" · ${plantel}`;
+
+// Alcance de administración: un admin puede estar acotado a un plantel (y
+// opcionalmente a una sección/nivel dentro de él). superadmin y admin sin
+// plantel asignado ven todo. Devuelve null cuando no hay restricción.
+export const adminScope = (userData) => {
+  const role = typeof userData?.role === 'string' ? userData.role.trim().toLowerCase() : '';
+  if (role !== 'admin' || !userData?.adminPlantel) return null;
+  return { plantel: userData.adminPlantel, nivel: userData.adminNivel || '' };
+};
+
+export const studentInScope = (s, scope) =>
+  !scope || (s.plantel === scope.plantel && (!scope.nivel || s.nivel === scope.nivel));
+
+// Orden de niveles para la promoción de grado (fin de ciclo escolar).
+const NIVEL_SIGUIENTE = {
+  Preescolar: 'Primaria',
+  Primaria: 'Secundaria',
+  Secundaria: 'Preparatoria',
+  Preparatoria: null, // egresa
+};
+
+// Calcula el grado/nivel al que pasa un alumno al promover el ciclo escolar.
+// Devuelve { egresado } o { nivel, grado, plantelSinNivel } (plantelSinNivel=true
+// cuando su plantel actual no ofrece el nuevo nivel: hay que reasignarlo a mano).
+export const promoverAlumno = ({ nivel, grado, plantel }) => {
+  const grados = NIVELES[nivel] || [];
+  const idx = grados.indexOf(grado);
+  if (idx === -1) return { invalido: true };
+  if (idx < grados.length - 1) {
+    return { nivel, grado: grados[idx + 1], plantelSinNivel: false };
+  }
+  const next = NIVEL_SIGUIENTE[nivel];
+  if (!next) return { egresado: true };
+  return {
+    nivel: next,
+    grado: (NIVELES[next] || [])[0],
+    plantelSinNivel: !nivelesDePlantel(plantel).includes(next),
+  };
+};
 
 // Genera la lista completa de grupos (clases) que existen en el colegio.
 export const todasLasClases = () => {

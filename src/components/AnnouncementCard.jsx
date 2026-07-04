@@ -1,4 +1,4 @@
-import { FileText, Image as ImageIcon, FileSpreadsheet, File as FileIcon, Trash2, Download } from 'lucide-react';
+import { FileText, Image as ImageIcon, FileSpreadsheet, File as FileIcon, Trash2, Download, Pencil } from 'lucide-react';
 import { getPrioridad, getCategoria } from '../config/avisos';
 import { fileKind, humanSize } from '../utils/announcements';
 
@@ -13,7 +13,7 @@ const scopeText = (a) => a.scopeLabel || (a.scope?.type === 'all' ? 'Todo el col
 // Tarjeta visual de un aviso. Se usa en Announcements (admin), ParentDashboard y
 // TeacherDashboard. `onDelete` muestra el botón de borrar; `onImageClick` abre la
 // portada/imagen en grande (lightbox); `unread` resalta avisos no leídos.
-export default function AnnouncementCard({ a, onDelete, onImageClick, unread = false }) {
+export default function AnnouncementCard({ a, onDelete, onEdit, onImageClick, unread = false }) {
   const pr = getPrioridad(a.priority);
   const cat = getCategoria(a.category);
   const PrIcon = pr.icon;
@@ -82,9 +82,14 @@ export default function AnnouncementCard({ a, onDelete, onImageClick, unread = f
         )}
 
         <div className="flex justify-between items-center" style={{ marginTop: 12, gap: 8 }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--gris-500)' }}>{a.authorName} · {fmtDate(a.createdAt)}</span>
-          {onDelete && (
-            <button onClick={() => onDelete(a)} className="btn btn-sm btn-danger"><Trash2 size={14} /></button>
+          <span style={{ fontSize: '0.75rem', color: 'var(--gris-500)' }}>
+            {a.authorName} · {fmtDate(a.createdAt)}{a.updatedAt ? ' · editado' : ''}
+          </span>
+          {(onDelete || onEdit) && (
+            <span style={{ display: 'inline-flex', gap: 6 }}>
+              {onEdit && <button onClick={() => onEdit(a)} className="btn btn-sm btn-secondary" title="Editar aviso"><Pencil size={14} /></button>}
+              {onDelete && <button onClick={() => onDelete(a)} className="btn btn-sm btn-danger" title="Eliminar aviso"><Trash2 size={14} /></button>}
+            </span>
           )}
         </div>
       </div>

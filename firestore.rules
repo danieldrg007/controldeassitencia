@@ -237,6 +237,20 @@ service cloud.firestore {
       );
     }
 
+    // ---------------- COLA DE ENTREGA ----------------
+    // El padre escanea su QR de recogida al llegar → sus hijos entran a la lista
+    // de "pendientes por entregar" del día. El personal los manda llamar a su
+    // plantel y marca la entrega (que además registra la salida en attendance).
+    match /pickupQueue/{date}/items/{itemId} {
+      // canScan PRIMERO (sin resource.data); el padre puede seguir el estado de sus hijos.
+      allow read: if signedIn() && (
+        canScan() ||
+        request.auth.uid in resource.data.parentIds
+      );
+      allow create, update: if signedIn() && canScan();
+      allow delete: if signedIn() && isAdmin();
+    }
+
     // ---------------- CHAT / MENSAJES ----------------
     // Modelo unificado: cada conversación tiene un array participants[] de uids.
     // El acceso se controla por pertenencia a ese array. Quién puede iniciar una
@@ -289,6 +303,14 @@ service cloud.firestore {
       );
     }
 
+    // ---------------- HORARIOS POR GRUPO ----------------
+    // Un doc por grupo (id = classId saneado) con la lista de bloques de clase.
+    // Los edita administración; profesores y padres los consultan.
+    match /schedules/{scheduleId} {
+      allow read: if signedIn();
+      allow create, update, delete: if signedIn() && isAdmin();
+    }
+
     // ---------------- MATERIAS (catálogo, lo gestiona admin) ----------------
     match /subjects/{subjectId} {
       allow read: if signedIn();
@@ -313,6 +335,38 @@ service cloud.firestore {
       );
       allow delete: if signedIn() && (
         isAdmin() || (isTeacher() && resource.data.teacherId == request.auth.uid)
+      );
+    }
+
+    // ---------------- TALLERES EXTRAESCOLARES ----------------
+    // Catálogo lo gestiona admin; los padres inscriben a SUS hijos. El estado de
+    // pago lo actualiza administración (o la pasarela de pago vía Cloud Function).
+    match /workshops/{workshopId} {
+      allow read: if signedIn();
+      allow create, update, delete: if signedIn() && isAdmin();
+    }
+
+    match /workshopEnrollments/{enrollmentId} {
+      // Ramas sin resource.data primero (consultas de admin); el padre ve las suyas.
+      allow read: if signedIn() && (
+        isAdmin() ||
+        resource.data.parentId == request.auth.uid
+      );
+      allow create: if signedIn() && (
+        isAdmin() ||
+        (
+          isParent() &&
+          request.resource.data.parentId == request.auth.uid &&
+          request.resource.data.paymentStatus == "pending" &&
+          studentExists(request.resource.data.studentId) &&
+          request.auth.uid in studentDoc(request.resource.data.studentId).parentIds
+        )
+      );
+      // Solo admin cambia el estado de pago; el padre puede cancelar (delete) si sigue pendiente.
+      allow update: if signedIn() && isAdmin();
+      allow delete: if signedIn() && (
+        isAdmin() ||
+        (resource.data.parentId == request.auth.uid && resource.data.paymentStatus == "pending")
       );
     }
 

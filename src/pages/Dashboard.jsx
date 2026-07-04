@@ -2,9 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { Users, UserCheck, UserX, Download, Filter, FileText, Clock, ClipboardCheck } from 'lucide-react';
-import { NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel } from '../config/colegio';
+import { NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel, adminScope, studentInScope } from '../config/colegio';
+import { useAuth } from '../context/AuthContext';
 
 export default function Dashboard() {
+  const { userData } = useAuth();
+  // Admin de plantel/sección: sus datos quedan acotados a su alcance.
+  const scope = useMemo(() => adminScope(userData), [userData]);
   const [students, setStudents] = useState([]);
   const [dailyRecords, setDailyRecords] = useState({});
   const [monthlyRecords, setMonthlyRecords] = useState({});
@@ -153,13 +157,14 @@ export default function Dashboard() {
   // Apply Filters to Students
   const filteredStudents = useMemo(() => {
     return students.filter(s => {
+      if (!studentInScope(s, scope)) return false;
       if (filterPlantel && s.plantel !== filterPlantel) return false;
       if (filterNivel && s.nivel !== filterNivel) return false;
       if (filterGrado && s.grado !== filterGrado) return false;
       if (filterGrupo && s.grupo !== filterGrupo) return false;
       return true;
     });
-  }, [students, filterPlantel, filterNivel, filterGrado, filterGrupo]);
+  }, [students, filterPlantel, filterNivel, filterGrado, filterGrupo, scope]);
 
   // Daily Stats Calculation
   const dailyStats = useMemo(() => {
@@ -207,7 +212,7 @@ export default function Dashboard() {
     };
   }, [filteredStudents, monthlyRecords, viewMode]);
 
-  const planteles = NOMBRE_PLANTELES;
+  const planteles = scope ? [scope.plantel] : NOMBRE_PLANTELES;
   const availableNiveles = filterPlantel ? nivelesDePlantel(filterPlantel) : [];
   const availableGrados = filterNivel ? gradosDeNivel(filterNivel) : [];
 

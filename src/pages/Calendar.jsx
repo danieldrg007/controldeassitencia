@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { CalendarDays, Plus, X, ChevronLeft, ChevronRight, Clock, MapPin, Users as UsersIcon, Trash2, Pencil, CalendarPlus, Copy, Check, ExternalLink } from 'lucide-react';
+import { CalendarDays, Plus, X, ChevronLeft, ChevronRight, Clock, MapPin, Users as UsersIcon, Trash2, Pencil, CalendarPlus, Copy, Check, ExternalLink, Paperclip, FileText, Image as ImageIcon, Download } from 'lucide-react';
 import { NOMBRE_PLANTELES, todasLasClases, classLabel, parseClassId } from '../config/colegio';
 import { CATEGORIAS, getCategoria } from '../config/avisos';
 import {
@@ -10,6 +10,8 @@ import {
   MONTHS_ES, WEEKDAYS_ES, buildMonthMatrix, todayStr, fmtEventDate,
   getGoogleCalendarUrl,
 } from '../utils/events';
+import { uploadEventFile, deleteEventFiles } from '../utils/eventFiles';
+import { fileKind, humanSize } from '../utils/announcements';
 
 const allClasses = todasLasClases();
 
@@ -43,6 +45,9 @@ export default function Calendar() {
     scopeValue: isTeacher && !isAdmin ? (teacherClasses[0]?.id || '') : '',
   };
   const [form, setForm] = useState(emptyForm);
+  const [newFiles, setNewFiles] = useState([]);   // adjuntos nuevos por subir
+  const [keepAtts, setKeepAtts] = useState([]);   // adjuntos existentes (edición)
+  const [lightbox, setLightbox] = useState(null); // imagen adjunta ampliada
 
   const handleCopyLink = () => {
     const feedUrl = `${window.location.origin.includes('localhost') ? 'https://mi-app-oliverio.web.app' : window.location.origin}/api/calendarFeed?uid=${user?.uid || ''}`;
@@ -103,6 +108,8 @@ export default function Calendar() {
   const openCreate = () => {
     setEditing(null);
     setForm({ ...emptyForm, date: selectedDate });
+    setNewFiles([]);
+    setKeepAtts([]);
     setShowModal(true);
   };
   const openEdit = (e) => {
@@ -112,6 +119,8 @@ export default function Calendar() {
       category: e.category || 'evento', audiences: e.audiences?.length ? e.audiences : ['general'],
       scopeType: e.scope?.type || 'all', scopeValue: e.scope?.type === 'all' ? '' : (e.scope?.value || ''),
     });
+    setNewFiles([]);
+    setKeepAtts(e.attachments || []);
     setShowModal(true);
   };
 
@@ -130,7 +139,12 @@ export default function Calendar() {
     setSaving(true);
     try {
       const id = editing?.id || doc(collection(db, 'events')).id;
+
+      const attachments = [...keepAtts];
+      for (const f of newFiles) attachments.push(await uploadEventFile(id, f));
+
       await setDoc(doc(db, 'events', id), {
+        attachments,
         title: form.title.trim(),
         description: form.description.trim(),
         date: form.date,
@@ -153,8 +167,11 @@ export default function Calendar() {
   };
 
   const remove = async (ev) => {
-    if (!confirm('¿Eliminar este evento?')) return;
-    try { await deleteDoc(doc(db, 'events', ev.id)); } catch (err) { alert('Error: ' + err.message); }
+    if (!confirm('¿Eliminar este evento? También se borrarán sus archivos adjuntos.')) return;
+    try {
+      await deleteEventFiles(ev.id); // limpia Storage antes de borrar el doc
+      await deleteDoc(doc(db, 'events', ev.id));
+    } catch (err) { alert('Error: ' + err.message); }
   };
 
   const canEdit = (ev) => isAdmin || (isTeacher && ev.authorId === user.uid);
@@ -174,6 +191,29 @@ export default function Calendar() {
           </div>
           <div style={{ fontWeight: 700, marginTop: 4 }}>{ev.title}</div>
           {ev.description && <p style={{ fontSize: '0.88rem', color: 'var(--gris-700)', whiteSpace: 'pre-wrap', marginTop: 2 }}>{ev.description}</p>}
+          {(ev.attachments || []).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+              {ev.attachments.map((f, i) => {
+                const kind = fileKind(f.type, f.name);
+                const Icon = kind === 'image' ? ImageIcon : FileText;
+                // Imágenes: se abren en lightbox dentro de la app; el resto en pestaña nueva.
+                return kind === 'image' ? (
+                  <button key={i} type="button" onClick={() => setLightbox(f.url)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', border: '1px solid var(--gris-200)', borderRadius: 10, cursor: 'zoom-in', color: 'var(--gris-700)', background: 'var(--surface-hover)', fontSize: '0.8rem', fontWeight: 600 }}>
+                    <Icon size={15} style={{ color: 'var(--guinda)' }} />
+                    <span style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                  </button>
+                ) : (
+                  <a key={i} href={f.url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', border: '1px solid var(--gris-200)', borderRadius: 10, textDecoration: 'none', color: 'var(--gris-700)', background: 'var(--surface-hover)', fontSize: '0.8rem', fontWeight: 600 }}>
+                    <Icon size={15} style={{ color: 'var(--guinda)' }} />
+                    <span style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    <Download size={12} style={{ color: 'var(--gris-500)' }} />
+                  </a>
+                );
+              })}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6, fontSize: '0.74rem', color: 'var(--gris-500)' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><UsersIcon size={12} /> {audienceLabels(ev.audiences)}</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><MapPin size={12} /> {ev.scopeLabel || 'Todo el colegio'}</span>
@@ -365,6 +405,33 @@ export default function Calendar() {
                 </div>
               )}
 
+              <div className="form-group">
+                <label className="form-label">Archivos adjuntos (opcional)</label>
+                <label className="btn btn-secondary w-full" style={{ cursor: 'pointer' }}>
+                  <Paperclip size={16} /> Agregar archivo (PDF, imagen...)
+                  <input type="file" multiple hidden onChange={e => { setNewFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ''; }} />
+                </label>
+                {(keepAtts.length > 0 || newFiles.length > 0) && (
+                  <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                    {keepAtts.map((f, i) => (
+                      <div key={`k${i}`} className="flex justify-between items-center" style={{ gap: 8, fontSize: '0.82rem', padding: '6px 10px', border: '1px solid var(--gris-200)', borderRadius: 8, background: 'var(--surface-hover)' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                        <button type="button" onClick={() => setKeepAtts(prev => prev.filter((_, idx) => idx !== i))} className="btn btn-sm btn-danger"><X size={12} /></button>
+                      </div>
+                    ))}
+                    {newFiles.map((f, i) => (
+                      <div key={`n${i}`} className="flex justify-between items-center" style={{ gap: 8, fontSize: '0.82rem', padding: '6px 10px', border: '1px solid var(--gris-200)', borderRadius: 8 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ color: 'var(--gris-500)', fontSize: '0.72rem' }}>{humanSize(f.size)}</span>
+                          <button type="button" onClick={() => setNewFiles(prev => prev.filter((_, idx) => idx !== i))} className="btn btn-sm btn-danger"><X size={12} /></button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <button type="submit" className="btn btn-primary w-full" disabled={saving} style={{ marginTop: 8 }}>
                 {saving ? 'Guardando...' : (editing ? 'Guardar cambios' : 'Crear evento')}
               </button>
@@ -372,6 +439,16 @@ export default function Calendar() {
           </div>
         </div>
       )}
+      {/* Visor de imagen adjunta a pantalla completa */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, cursor: 'zoom-out', padding: 24 }}>
+          <img src={lightbox} alt="" style={{ maxWidth: '95vw', maxHeight: '90vh', borderRadius: 12, boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }} />
+          <button onClick={() => setLightbox(null)}
+            style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', borderRadius: '50%', width: 44, height: 44, fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+      )}
+
       {/* Modal sincronización */}
       {showSyncModal && (
         <div className="modal-overlay" onClick={() => setShowSyncModal(false)}>

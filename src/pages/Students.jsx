@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
-import { UserPlus, Search, Download, Trash2, Edit, QrCode, X, Upload, Mail, Phone } from 'lucide-react';
+import { UserPlus, Search, Download, Trash2, Edit, QrCode, X, Upload, Mail, Phone, ArrowRightLeft, Ban, CheckCircle2, GraduationCap, AlertTriangle } from 'lucide-react';
 import {
   NOMBRE_PLANTELES, GRUPOS, nivelesDePlantel, gradosDeNivel,
-  makeClassId, classLabel,
+  makeClassId, classLabel, promoverAlumno, adminScope, studentInScope,
 } from '../config/colegio';
+import { useAuth } from '../context/AuthContext';
 import Avatar from '../components/Avatar';
 
 function generateQR() {
@@ -16,6 +17,10 @@ function generateQR() {
 const emptyForm = { name: '', lastName: '', plantel: '', nivel: '', grado: '', grupo: '', parentIds: [] };
 
 export default function Students() {
+  const { userData } = useAuth();
+  const role = typeof userData?.role === 'string' ? userData.role.trim().toLowerCase() : '';
+  const isAdminRole = role === 'admin' || role === 'superadmin';
+  const scope = adminScope(userData); // admin de plantel/sección → solo ve su alcance
   const [students, setStudents] = useState([]);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -27,6 +32,11 @@ export default function Students() {
   const [form, setForm] = useState(emptyForm);
   const [importPreview, setImportPreview] = useState(null); // { items:[{a,curp,exists}], fileName }
   const [importing, setImporting] = useState(false);
+  const [moveStudent, setMoveStudent] = useState(null);     // alumno al que se le cambia de grupo
+  const [moveForm, setMoveForm] = useState({ plantel: '', nivel: '', grado: '', grupo: '' });
+  const [showPromote, setShowPromote] = useState(false);    // promoción masiva de grado (fin de ciclo)
+  const [promoteConfirm, setPromoteConfirm] = useState('');
+  const [promoting, setPromoting] = useState(false);
 
   const loadStudents = async () => {
     const snap = await getDocs(collection(db, 'students'));
@@ -91,6 +101,90 @@ export default function Students() {
       alert('Error: ' + err.message);
     }
     setLoading(false);
+  };
+
+  // Suspensión por adeudo: bloquea el registro de entrada/salida del alumno en
+  // Scanner y Kiosko hasta que administración lo reactive.
+  const toggleSuspended = async (s) => {
+    const action = s.suspended ? 'reactivar' : 'suspender';
+    const msg = s.suspended
+      ? `¿Reactivar a ${s.name} ${s.lastName}? Podrá volver a registrar entradas y salidas.`
+      : `⚠️ ¿Suspender a ${s.name} ${s.lastName} por adeudo?\n\nAl escanear su QR aparecerá "Cuenta suspendida — presentarse en administración" y no se registrará su acceso.`;
+    if (!window.confirm(msg)) return;
+    try {
+      await updateDoc(doc(db, 'students', s.id), {
+        suspended: !s.suspended,
+        suspendedAt: !s.suspended ? new Date().toISOString() : null,
+      });
+      loadStudents();
+    } catch (err) { alert(`Error al ${action}: ` + err.message); }
+  };
+
+  const openMove = (s) => {
+    setMoveForm({ plantel: s.plantel || '', nivel: s.nivel || '', grado: s.grado || '', grupo: s.grupo || '' });
+    setMoveStudent(s);
+  };
+
+  const handleMove = async (e) => {
+    e.preventDefault();
+    const { plantel, nivel, grado, grupo } = moveForm;
+    const newClassId = makeClassId({ plantel, nivel, grado, grupo });
+    if (newClassId === moveStudent.classId) { alert('El alumno ya está en ese grupo.'); return; }
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, 'students', moveStudent.id), {
+        plantel, nivel, grado, grupo,
+        classId: newClassId,
+        lastGroupChange: {
+          from: moveStudent.classId || '',
+          to: newClassId,
+          at: new Date().toISOString(),
+        },
+      });
+      setMoveStudent(null);
+      loadStudents();
+    } catch (err) { alert('Error al cambiar de grupo: ' + err.message); }
+    setLoading(false);
+  };
+
+  // Vista previa de la promoción de grado (fin de ciclo, p. ej. 31 de agosto).
+  const promotePreview = () => {
+    const activos = students.filter(s => !s.egresado && s.nivel && s.grado);
+    const promovidos = [], egresan = [], revisar = [], sinDatos = students.filter(s => !s.egresado && (!s.nivel || !s.grado));
+    for (const s of activos) {
+      const r = promoverAlumno(s);
+      if (r.invalido) { sinDatos.push(s); continue; }
+      if (r.egresado) { egresan.push(s); continue; }
+      if (r.plantelSinNivel) revisar.push({ s, r });
+      promovidos.push({ s, r });
+    }
+    return { promovidos, egresan, revisar, sinDatos };
+  };
+
+  const runPromotion = async () => {
+    const { promovidos, egresan } = promotePreview();
+    setPromoting(true);
+    const at = new Date().toISOString();
+    try {
+      await Promise.all([
+        ...promovidos.map(({ s, r }) => updateDoc(doc(db, 'students', s.id), {
+          nivel: r.nivel,
+          grado: r.grado,
+          classId: makeClassId({ plantel: s.plantel, nivel: r.nivel, grado: r.grado, grupo: s.grupo || '' }),
+          lastPromotion: { from: `${s.grado} ${s.nivel}`, to: `${r.grado} ${r.nivel}`, at },
+        })),
+        ...egresan.map(({ id, grado, nivel }) => updateDoc(doc(db, 'students', id), {
+          egresado: true,
+          egresadoAt: at,
+          lastPromotion: { from: `${grado} ${nivel}`, to: 'Egresado', at },
+        })),
+      ]);
+      setShowPromote(false);
+      setPromoteConfirm('');
+      await loadStudents();
+      alert(`Promoción completada: ${promovidos.length} alumnos subieron de grado y ${egresan.length} egresaron.`);
+    } catch (err) { alert('Error en la promoción: ' + err.message); }
+    setPromoting(false);
   };
 
   const printQR = (student) => {
@@ -158,6 +252,7 @@ export default function Students() {
   };
 
   const filtered = students.filter(s =>
+    studentInScope(s, scope) &&
     `${s.name} ${s.lastName} ${s.grado} ${s.nivel} ${s.grupo} ${s.plantel}`.toLowerCase().includes(search.toLowerCase())
   );
   const editingTutor = editId ? students.find(s => s.id === editId)?.tutor : null;
@@ -173,6 +268,11 @@ export default function Students() {
           <p className="page-subtitle">{students.length} alumnos registrados</p>
         </div>
         <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+          {isAdminRole && (
+            <button onClick={() => { setPromoteConfirm(''); setShowPromote(true); }} className="btn btn-gold" title="Subir de grado a todos los alumnos (fin de ciclo escolar)">
+              <GraduationCap size={16}/> <span>Promover grado</span>
+            </button>
+          )}
           <label className="btn btn-secondary" style={{cursor:'pointer'}} title="Importar alumnos exportados desde Inscripciones">
             <Upload size={16}/> <span>Importar</span>
             <input type="file" accept="application/json,.json" hidden onChange={handleImportFile} />
@@ -206,7 +306,9 @@ export default function Students() {
                     <td>
                       <div style={{display:'flex', alignItems:'center', gap:10}}>
                         <Avatar name={s.name} size={34} />
-                        <span style={{fontWeight:600}}>{s.lastName} {s.name}</span>
+                        <span style={{fontWeight:600, opacity: s.suspended || s.egresado ? 0.6 : 1}}>{s.lastName} {s.name}</span>
+                        {s.suspended && <span className="badge badge-danger"><Ban size={11}/> Suspendido</span>}
+                        {s.egresado && <span className="badge badge-gold"><GraduationCap size={11}/> Egresado</span>}
                       </div>
                     </td>
                     <td data-label="Plantel">{s.plantel || '—'}</td>
@@ -217,10 +319,14 @@ export default function Students() {
                       </button>
                     </td>
                     <td data-label="">
-                      <div className="flex gap-2">
-                        <button onClick={() => handleEdit(s)} className="btn btn-sm btn-secondary"><Edit size={14}/></button>
-                        <button onClick={() => printQR(s)} className="btn btn-sm btn-gold"><Download size={14}/></button>
-                        <button onClick={() => setDeleteStudent(s)} className="btn btn-sm btn-danger"><Trash2 size={14}/></button>
+                      <div className="flex gap-2" style={{flexWrap:'wrap'}}>
+                        <button onClick={() => handleEdit(s)} className="btn btn-sm btn-secondary" title="Editar alumno"><Edit size={14}/></button>
+                        <button onClick={() => openMove(s)} className="btn btn-sm btn-secondary" title="Cambiar de grupo"><ArrowRightLeft size={14}/></button>
+                        <button onClick={() => toggleSuspended(s)} className={`btn btn-sm ${s.suspended ? 'btn-success' : 'btn-gold'}`} title={s.suspended ? 'Reactivar (quitar suspensión)' : 'Suspender por adeudo'}>
+                          {s.suspended ? <CheckCircle2 size={14}/> : <Ban size={14}/>}
+                        </button>
+                        <button onClick={() => printQR(s)} className="btn btn-sm btn-gold" title="Imprimir QR"><Download size={14}/></button>
+                        <button onClick={() => setDeleteStudent(s)} className="btn btn-sm btn-danger" title="Eliminar"><Trash2 size={14}/></button>
                       </div>
                     </td>
                   </tr>
@@ -376,6 +482,122 @@ export default function Students() {
           </div>
         </div>
       )}
+
+      {/* Modal Promoción de Grado (fin de ciclo) */}
+      {showPromote && (() => {
+        const { promovidos, egresan, revisar, sinDatos } = promotePreview();
+        const ok = promoteConfirm.trim().toUpperCase() === 'PROMOVER';
+        return (
+          <div className="modal-overlay" onClick={() => !promoting && setShowPromote(false)}>
+            <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 className="modal-title"><GraduationCap size={20} style={{verticalAlign:'middle', marginRight:6}}/> Promoción de grado escolar</h3>
+                <button className="modal-close" onClick={() => !promoting && setShowPromote(false)}><X size={16}/></button>
+              </div>
+              <div className="notice notice-warning" style={{marginBottom:16}}>
+                <AlertTriangle size={20} style={{flexShrink:0, marginTop:2}}/>
+                <p style={{fontSize:'0.85rem', lineHeight:1.5}}>
+                  Esta acción sube de grado a <strong>TODOS los alumnos</strong> al mismo tiempo (fin de ciclo escolar, p. ej. 31 de agosto).
+                  Los de último grado pasan al siguiente nivel y los de 3° de Preparatoria se marcan como egresados. <strong>No se puede deshacer en bloque.</strong>
+                </p>
+              </div>
+              <div className="stats-grid" style={{marginBottom:16}}>
+                <div className="stat-card"><div className="stat-icon success"><GraduationCap size={20}/></div><div><div className="stat-value">{promovidos.length}</div><div className="stat-label">Suben de grado</div></div></div>
+                <div className="stat-card"><div className="stat-icon guinda"><GraduationCap size={20}/></div><div><div className="stat-value">{egresan.length}</div><div className="stat-label">Egresan</div></div></div>
+                <div className="stat-card"><div className="stat-icon warning"><AlertTriangle size={20}/></div><div><div className="stat-value">{revisar.length}</div><div className="stat-label">Revisar plantel</div></div></div>
+                <div className="stat-card"><div className="stat-icon danger"><AlertTriangle size={20}/></div><div><div className="stat-value">{sinDatos.length}</div><div className="stat-label">Sin nivel/grado</div></div></div>
+              </div>
+              {revisar.length > 0 && (
+                <div className="notice notice-info" style={{marginBottom:12}}>
+                  <p style={{fontSize:'0.8rem'}}>
+                    <strong>Cambio de plantel pendiente:</strong> {revisar.map(({s, r}) => `${s.name} ${s.lastName} (→ ${r.nivel}, ${s.plantel} no lo ofrece)`).join('; ')}.
+                    Se promoverán de todas formas; reasígnales plantel después.
+                  </p>
+                </div>
+              )}
+              {sinDatos.length > 0 && (
+                <p style={{fontSize:'0.8rem', color:'var(--gris-500)', marginBottom:12}}>
+                  Sin nivel o grado válido (se omiten): {sinDatos.map(s => `${s.name} ${s.lastName}`).join(', ')}.
+                </p>
+              )}
+              <div className="form-group">
+                <label className="form-label">Escribe PROMOVER para confirmar</label>
+                <input className="form-input" value={promoteConfirm} onChange={e => setPromoteConfirm(e.target.value)}
+                  placeholder="PROMOVER" style={{textTransform:'uppercase', letterSpacing:1, fontWeight:700}} />
+              </div>
+              <div className="modal-footer">
+                <button onClick={() => setShowPromote(false)} className="btn btn-secondary" disabled={promoting}>Cancelar</button>
+                <button onClick={runPromotion} className="btn btn-danger" disabled={!ok || promoting || (promovidos.length + egresan.length === 0)}>
+                  {promoting ? 'Promoviendo…' : `Promover ${promovidos.length + egresan.length} alumno(s)`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal Cambiar de Grupo */}
+      {moveStudent && (() => {
+        const nivelesM = moveForm.plantel ? nivelesDePlantel(moveForm.plantel) : [];
+        const gradosM = moveForm.nivel ? gradosDeNivel(moveForm.nivel) : [];
+        return (
+          <div className="modal-overlay" onClick={() => !loading && setMoveStudent(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 className="modal-title"><ArrowRightLeft size={18} style={{verticalAlign:'middle', marginRight:6}}/> Cambiar de grupo</h3>
+                <button className="modal-close" onClick={() => !loading && setMoveStudent(null)}><X size={16}/></button>
+              </div>
+              <div style={{marginBottom:16, padding:'10px 14px', background:'var(--surface-hover)', borderRadius:'var(--radius-sm)'}}>
+                <strong>{moveStudent.name} {moveStudent.lastName}</strong>
+                <p style={{fontSize:'0.82rem', color:'var(--gris-500)', marginTop:2}}>
+                  Grupo actual: {moveStudent.grado} {moveStudent.nivel} {moveStudent.grupo ? `"${moveStudent.grupo}"` : ''} · {moveStudent.plantel || 'sin plantel'}
+                </p>
+              </div>
+              <form onSubmit={handleMove}>
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Plantel</label>
+                    <select className="form-select" value={moveForm.plantel} onChange={e => setMoveForm({...moveForm, plantel: e.target.value, nivel: '', grado: ''})} required>
+                      <option value="">Seleccionar...</option>
+                      {NOMBRE_PLANTELES.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Nivel</label>
+                    <select className="form-select" value={moveForm.nivel} onChange={e => setMoveForm({...moveForm, nivel: e.target.value, grado: ''})} required disabled={!moveForm.plantel}>
+                      <option value="">...</option>
+                      {nivelesM.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Grado</label>
+                    <select className="form-select" value={moveForm.grado} onChange={e => setMoveForm({...moveForm, grado: e.target.value})} required disabled={!moveForm.nivel}>
+                      <option value="">...</option>
+                      {gradosM.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Grupo</label>
+                    <select className="form-select" value={moveForm.grupo} onChange={e => setMoveForm({...moveForm, grupo: e.target.value})} required>
+                      <option value="">...</option>
+                      {GRUPOS.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {moveForm.plantel && moveForm.nivel && moveForm.grado && moveForm.grupo && (
+                  <p style={{fontSize:'0.82rem', marginBottom:12}}>
+                    Nuevo grupo: <strong style={{color:'var(--guinda)'}}>{classLabel(moveForm)}</strong>
+                  </p>
+                )}
+                <div className="modal-footer">
+                  <button type="button" onClick={() => setMoveStudent(null)} className="btn btn-secondary" disabled={loading}>Cancelar</button>
+                  <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Cambiar de grupo'}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal Confirmar Eliminar */}
       {deleteStudent && (

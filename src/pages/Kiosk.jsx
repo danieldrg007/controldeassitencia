@@ -4,7 +4,8 @@ import { collection, query, where, getDocs, getDoc, addDoc, updateDoc, doc } fro
 import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, LogOut, CheckCircle, XCircle, ScanLine, ArrowLeft, IdCard, User } from 'lucide-react';
+import { LogIn, LogOut, CheckCircle, XCircle, ScanLine, ArrowLeft, IdCard, User, Ban, PackageCheck } from 'lucide-react';
+import { resolvePickupCode, enqueuePickup } from '../utils/pickupQueue';
 import logo from '../assets/logo.jpg';
 
 // Tiempo de espera para registrar la salida si nadie indica quién recoge.
@@ -127,10 +128,31 @@ export default function Kiosk() {
   const processAttendance = useCallback(async (qrCode) => {
     try {
       const snap = await getDocs(query(collection(db, 'students'), where('qrCode', '==', qrCode)));
-      if (snap.empty) { showFeedback({ type: 'unknown' }); return; }
+      if (snap.empty) {
+        // No es QR de alumno: ¿es un código de recogida (padre o pase temporal)?
+        // Si lo es, sus hijos entran a la cola de entrega (pendientes por entregar).
+        if (/^(RC|PASS)-/i.test((qrCode || '').trim())) {
+          const res = await resolvePickupCode(qrCode);
+          if (res.ok) {
+            const { queued } = await enqueuePickup(res);
+            if (queued > 0) {
+              showFeedback({ type: 'queued', person: res.person, count: queued }, 5000);
+            } else {
+              showFeedback({ type: 'queueEmpty', person: res.person }, 4500);
+            }
+            return;
+          }
+        }
+        showFeedback({ type: 'unknown' });
+        return;
+      }
 
       const studentDoc = snap.docs[0];
       const student = { id: studentDoc.id, ...studentDoc.data() };
+
+      // Alumno suspendido por adeudo: no se registra, se manda a administración.
+      if (student.suspended) { showFeedback({ type: 'suspended', student }, 5000); return; }
+
       const recordsRef = collection(db, 'attendance', today, 'records');
       const rsnap = await getDocs(query(recordsRef, where('studentId', '==', student.id)));
       const now = new Date().toISOString();
@@ -218,6 +240,9 @@ export default function Kiosk() {
 
   const overlay = result && (() => {
     if (result.type === 'unknown') return { bg: 'var(--danger)', icon: <XCircle size={120} color="#fff"/>, title: 'QR no reconocido', sub: 'Acércate a recepción' };
+    if (result.type === 'suspended') return { bg: 'var(--danger)', icon: <Ban size={120} color="#fff"/>, title: 'Cuenta suspendida', sub: `${result.student.name} ${result.student.lastName} · presentarse en administración` };
+    if (result.type === 'queued') return { bg: 'var(--success)', icon: <PackageCheck size={120} color="#fff"/>, title: '¡Llegada registrada!', sub: `${result.count} alumno(s) de ${result.person} serán llamados. Espera en la puerta.` };
+    if (result.type === 'queueEmpty') return { bg: 'var(--warning)', icon: <PackageCheck size={120} color="#fff"/>, title: 'Sin alumnos por entregar', sub: `Los alumnos de ${result.person} no están en el colegio ahora.` };
     if (result.type === 'entry') return { bg: 'var(--success)', icon: <LogIn size={120} color="#fff"/>, title: '¡Bienvenido!', sub: `${result.student.name} ${result.student.lastName}` };
     if (result.type === 'exit') return { bg: 'var(--info)', icon: <LogOut size={120} color="#fff"/>, title: '¡Hasta pronto!', sub: `${result.student.name} ${result.student.lastName}` };
     return { bg: 'var(--warning)', icon: <CheckCircle size={120} color="#fff"/>, title: 'Ya registrado hoy', sub: `${result.student.name} ${result.student.lastName}` };

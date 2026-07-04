@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { db, secondaryAuth, auth } from '../firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
-import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check, FileSpreadsheet } from 'lucide-react';
+import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check, FileSpreadsheet, List, LayoutGrid, AlertTriangle } from 'lucide-react';
 import { ROLE_LABELS, NOMBRE_PLANTELES, nivelesDePlantel, gradosDeNivel, GRUPOS, makeClassId } from '../config/colegio';
 import Avatar from '../components/Avatar';
 
@@ -17,7 +17,7 @@ const TABS = [
   { id: 'parent', label: 'Padres', roles: ['parent'] },
   { id: 'op', label: 'Operación', roles: ['guard', 'kiosk'] },
 ];
-const emptyForm = { displayName: '', email: '', password: '', role: 'parent', classIds: [], plantel: '' };
+const emptyForm = { displayName: '', email: '', password: '', role: 'parent', classIds: [], plantel: '', adminPlantel: '', adminNivel: '' };
 
 // Selector de grupos para profesores (agrupado por plantel).
 function ClassPicker({ value, onChange }) {
@@ -55,6 +55,8 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('todos');
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'cards'
+  const [onlyNoGroups, setOnlyNoGroups] = useState(false); // profesores sin grupos
   const [showModal, setShowModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(null);
   const [editUser, setEditUser] = useState(null);
@@ -95,6 +97,7 @@ export default function Users() {
       };
       if (form.role === 'teacher') payload.classIds = form.classIds;
       if (form.role === 'kiosk') payload.plantel = form.plantel;
+      if (form.role === 'admin') { payload.adminPlantel = form.adminPlantel || ''; payload.adminNivel = form.adminPlantel ? (form.adminNivel || '') : ''; }
       await setDoc(doc(db, 'users', cred.user.uid), payload);
       await signOut(secondaryAuth);
       setShowModal(false);
@@ -108,7 +111,7 @@ export default function Users() {
   };
 
   const openEdit = (u) => {
-    setForm({ displayName: u.displayName || '', email: u.email || '', password: '', role: u.role || 'parent', classIds: u.classIds || [], plantel: u.plantel || '' });
+    setForm({ displayName: u.displayName || '', email: u.email || '', password: '', role: u.role || 'parent', classIds: u.classIds || [], plantel: u.plantel || '', adminPlantel: u.adminPlantel || '', adminNivel: u.adminNivel || '' });
     setEditUser(u);
   };
 
@@ -119,6 +122,8 @@ export default function Users() {
       const payload = { displayName: form.displayName, email: form.email, role: form.role };
       payload.classIds = form.role === 'teacher' ? form.classIds : [];
       payload.plantel = form.role === 'kiosk' ? form.plantel : '';
+      payload.adminPlantel = form.role === 'admin' ? (form.adminPlantel || '') : '';
+      payload.adminNivel = form.role === 'admin' && form.adminPlantel ? (form.adminNivel || '') : '';
       await updateDoc(doc(db, 'users', editUser.id), payload);
       setEditUser(null);
       loadUsers();
@@ -167,9 +172,14 @@ export default function Users() {
   const activeTab = TABS.find(t => t.id === tab) || TABS[0];
   const filtered = useMemo(() => users.filter(u => {
     if (activeTab.roles && !activeTab.roles.includes(u.role)) return false;
+    if (onlyNoGroups && !(u.role === 'teacher' && (u.classIds?.length || 0) === 0)) return false;
     const q = search.toLowerCase();
     return (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
-  }), [users, activeTab, search]);
+  }), [users, activeTab, search, onlyNoGroups]);
+
+  // ¿Este apartado puede tener profesores? (para mostrar el filtro "sin grupos")
+  const tabHasTeachers = tab === 'todos' || tab === 'teacher';
+  const noGroupsCount = useMemo(() => users.filter(u => u.role === 'teacher' && (u.classIds?.length || 0) === 0).length, [users]);
 
   // Conteo por apartado (para los badges de las pestañas).
   const tabCounts = useMemo(() => {
@@ -197,6 +207,27 @@ export default function Users() {
           <ClassPicker value={form.classIds} onChange={(ids) => setForm({ ...form, classIds: ids })} />
         </div>
       )}
+      {form.role === 'admin' && (
+        <div className="grid-2">
+          <div className="form-group">
+            <label className="form-label">Alcance: plantel (opcional)</label>
+            <select className="form-select" value={form.adminPlantel} onChange={e => setForm({ ...form, adminPlantel: e.target.value, adminNivel: '' })}>
+              <option value="">Todo el colegio</option>
+              {NOMBRE_PLANTELES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <p style={{fontSize:'0.72rem', color:'var(--gris-500)', marginTop:4}}>Si eliges un plantel, este administrador solo verá y gestionará ese plantel.</p>
+          </div>
+          {form.adminPlantel && (
+            <div className="form-group">
+              <label className="form-label">Alcance: sección (opcional)</label>
+              <select className="form-select" value={form.adminNivel} onChange={e => setForm({ ...form, adminNivel: e.target.value })}>
+                <option value="">Todo el plantel</option>
+                {nivelesDePlantel(form.adminPlantel).map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
       {form.role === 'kiosk' && (
         <div className="form-group">
           <label className="form-label">Plantel del kiosko</label>
@@ -207,6 +238,18 @@ export default function Users() {
           <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:4}}>La asistencia registrada en esta tablet se marcará con este plantel.</p>
         </div>
       )}
+    </>
+  );
+
+  // Botones de acción de cada usuario (reutilizados en lista y tarjetas).
+  const userActions = (u) => (
+    <>
+      <button onClick={() => copyAccessLink(u)} className="btn btn-sm btn-secondary" title={u.password ? 'Copiar acceso directo (correo + contraseña)' : 'Copiar enlace de acceso'}>
+        {copiedId === u.id ? <Check size={14} /> : <Link2 size={14} />}
+      </button>
+      <button onClick={() => openEdit(u)} className="btn btn-sm btn-secondary" title="Editar"><Edit size={14} /></button>
+      <button onClick={() => handleSendReset(u.email)} className="btn btn-sm btn-gold" title="Restablecer contraseña"><Key size={14} /></button>
+      <button onClick={() => setDeleteUser(u)} className="btn btn-sm btn-danger" title="Eliminar"><Trash2 size={14} /></button>
     </>
   );
 
@@ -234,13 +277,29 @@ export default function Users() {
         ))}
       </div>
 
-      {/* Buscador */}
-      <div className="card mb-4">
-        <div style={{position:'relative'}}>
+      {/* Buscador + vista + filtros */}
+      <div className="card mb-4" style={{display:'flex', gap:12, alignItems:'center', flexWrap:'wrap'}}>
+        <div style={{position:'relative', flex:'1 1 240px'}}>
           <Search size={18} style={{position:'absolute', left:14, top:11, color:'var(--gris-500)'}} />
-          <input className="form-input" placeholder="Buscar por nombre o correo..." value={search} onChange={e => setSearch(e.target.value)} style={{paddingLeft:40}} />
+          <input className="form-input" placeholder="Buscar por nombre o correo..." value={search} onChange={e => setSearch(e.target.value)} style={{paddingLeft:40, width:'100%'}} />
+        </div>
+
+        {tabHasTeachers && noGroupsCount > 0 && (
+          <button type="button" onClick={() => setOnlyNoGroups(v => !v)}
+            className={`btn btn-sm ${onlyNoGroups ? 'btn-primary' : 'btn-secondary'}`}
+            title="Profesores que aún no tienen grupos asignados">
+            <AlertTriangle size={14}/> Sin grupos ({noGroupsCount})
+          </button>
+        )}
+
+        {/* Toggle de vista */}
+        <div className="seg" style={{flex:'0 0 auto'}}>
+          <button type="button" className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')} title="Vista de lista" style={{padding:'8px 14px'}}><List size={16}/></button>
+          <button type="button" className={viewMode === 'cards' ? 'active' : ''} onClick={() => setViewMode('cards')} title="Vista de tarjetas" style={{padding:'8px 14px'}}><LayoutGrid size={16}/></button>
         </div>
       </div>
+
+      <p style={{fontSize:'0.8rem', color:'var(--gris-500)', margin:'0 2px 10px'}}>Mostrando {filtered.length} de {tabCounts[tab]} usuario(s){onlyNoGroups ? ' · sin grupos asignados' : ''}.</p>
 
       {/* Tarjetas de usuarios */}
       {filtered.length === 0 ? (
@@ -249,6 +308,27 @@ export default function Users() {
             <div className="empty-state-icon">👥</div>
             <p className="empty-state-text">No hay usuarios en este apartado</p>
           </div>
+        </div>
+      ) : viewMode === 'list' ? (
+        <div className="card" style={{padding:0, overflow:'hidden'}}>
+          {filtered.map(u => (
+            <div key={u.id} className="user-row">
+              <Avatar src={u.photo} name={u.displayName} size={38} />
+              <div className="user-row-info">
+                <div className="user-row-name">{u.displayName || 'Sin nombre'}</div>
+                <div className="user-row-email">{u.email || '—'}</div>
+              </div>
+              <span className={`badge ${ROLE_BADGE[u.role] || 'badge-info'}`}>{ROLE_LABELS[u.role] || u.role}</span>
+              {u.role === 'teacher' && (
+                <span className="user-row-meta" style={u.classIds?.length ? undefined : {color:'var(--danger)', fontWeight:600}}>
+                  <ClipboardCheck size={12}/> {u.classIds?.length || 0} grupo(s)
+                </span>
+              )}
+              {u.role === 'kiosk' && <span className="user-row-meta"><MapPin size={12}/> {u.plantel || 'sin plantel'}</span>}
+              {u.role === 'admin' && u.adminPlantel && <span className="user-row-meta"><MapPin size={12}/> {u.adminPlantel}{u.adminNivel ? ` · ${u.adminNivel}` : ''}</span>}
+              <div className="user-row-actions">{userActions(u)}</div>
+            </div>
+          ))}
         </div>
       ) : (
         <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:16}}>

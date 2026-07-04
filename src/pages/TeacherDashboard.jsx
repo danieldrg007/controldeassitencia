@@ -4,13 +4,14 @@ import { db } from '../firebase';
 import { collection, query, where, getDocs, getDoc, doc, setDoc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { updateEmail, updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
-import { ClipboardCheck, Megaphone, Check, X, Clock, Users, Send, UserCircle, Camera, Save, RefreshCw, MessageCircle, StickyNote, Mail, Plus, Trash2, CalendarDays, GraduationCap, ImagePlus, Paperclip } from 'lucide-react';
+import { ClipboardCheck, Megaphone, Check, X, Clock, Users, Send, UserCircle, Camera, Save, RefreshCw, MessageCircle, StickyNote, Mail, Plus, Trash2, CalendarDays, GraduationCap, ImagePlus, Paperclip, FileText, FileSpreadsheet } from 'lucide-react';
 import { parseClassId, classLabel, PERIODOS } from '../config/colegio';
 import { PRIORIDADES, CATEGORIAS } from '../config/avisos';
 import { uploadAnnouncementFile, uploadAnnouncementCover, humanSize } from '../utils/announcements';
 import Avatar from '../components/Avatar';
 import { fileToResizedDataURL } from '../utils/image';
 import { forceUpdate } from '../utils/version';
+import { attendancePDF, attendanceExcel } from '../utils/reports';
 
 const ESTADOS = {
   present: { label: 'Presente', badge: 'badge-success', icon: Check },
@@ -505,11 +506,21 @@ export default function TeacherDashboard() {
                     </div>
                   );
                 })}
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:16,flexWrap:'wrap',gap:8}}>
                   {savedMsg && <span className="badge badge-success">{savedMsg}</span>}
-                  <button onClick={saveAttendance} className="btn btn-primary" disabled={saving} style={{marginLeft:'auto'}}>
-                    {saving ? 'Guardando...' : 'Guardar lista'}
-                  </button>
+                  <div style={{display:'flex',gap:8,marginLeft:'auto',flexWrap:'wrap'}}>
+                    <button onClick={() => attendancePDF({ students, statuses, classLabel: classes.find(c => c.id === selectedClass)?.label || selectedClass, date: attDate, teacherName: userData?.displayName })}
+                      className="btn btn-secondary" title="Descargar reporte en PDF">
+                      <FileText size={16}/> PDF
+                    </button>
+                    <button onClick={() => attendanceExcel({ students, statuses, classLabel: classes.find(c => c.id === selectedClass)?.label || selectedClass, date: attDate, teacherName: userData?.displayName })}
+                      className="btn btn-secondary" title="Descargar reporte en Excel">
+                      <FileSpreadsheet size={16}/> Excel
+                    </button>
+                    <button onClick={saveAttendance} className="btn btn-primary" disabled={saving}>
+                      {saving ? 'Guardando...' : 'Guardar lista'}
+                    </button>
+                  </div>
                 </div>
                 <p style={{fontSize:'0.75rem',color:'var(--gris-500)',marginTop:8}}>Los alumnos sin marcar se guardan como ausentes.</p>
               </>

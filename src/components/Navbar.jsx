@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X, BookOpen, CalendarDays } from 'lucide-react';
+import { LogOut, Users, LayoutDashboard, ScanLine, UserCircle, UserCog, Monitor, ClipboardCheck, Megaphone, MessageCircle, Menu, X, BookOpen, CalendarDays, PackageCheck, CalendarClock, Palette } from 'lucide-react';
 import logo from '../assets/logo.jpg';
 import NotificationBell from './NotificationBell';
 
@@ -58,6 +58,7 @@ export default function Navbar() {
           <>
             <NavLink to="/dashboard" className={linkClass}><LayoutDashboard size={16} /> Dashboard</NavLink>
             <NavLink to="/scanner" className={linkClass}><ScanLine size={16} /> Escáner</NavLink>
+            <NavLink to="/entregas" className={linkClass}><PackageCheck size={16} /> Entregas</NavLink>
             <NavLink to="/kiosk" className={linkClass}><Monitor size={16} /> Kiosko</NavLink>
           </>
         )}
@@ -77,6 +78,12 @@ export default function Navbar() {
         )}
         {(isAdmin || isTeacher || role === 'parent') && (
           <NavLink to="/calendar" className={linkClass}><CalendarDays size={16} /> Calendario</NavLink>
+        )}
+        {(isAdmin || isTeacher || role === 'parent') && (
+          <NavLink to="/schedules" className={linkClass}><CalendarClock size={16} /> Horarios</NavLink>
+        )}
+        {(isAdmin || role === 'parent') && (
+          <NavLink to="/workshops" className={linkClass}><Palette size={16} /> Talleres</NavLink>
         )}
         {(isAdmin || isTeacher || role === 'parent') && (
           <NavLink to="/messages" className={linkClass}>

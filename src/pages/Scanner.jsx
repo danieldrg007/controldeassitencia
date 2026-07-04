@@ -3,7 +3,8 @@ import { db } from '../firebase';
 import { collection, query, where, getDocs, getDoc, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../context/AuthContext';
-import { ScanLine, Camera, CheckCircle, XCircle, RotateCcw, LogIn, LogOut, IdCard, User } from 'lucide-react';
+import { ScanLine, Camera, CheckCircle, XCircle, RotateCcw, LogIn, LogOut, IdCard, User, Ban, Clock } from 'lucide-react';
+import { esSalidaAnticipada, MOTIVOS_SALIDA_ANTICIPADA } from '../config/colegio';
 
 export default function Scanner() {
   const { user } = useAuth();
@@ -17,6 +18,8 @@ export default function Scanner() {
   const [groupLoading, setGroupLoading] = useState(false);
   const [zoom, setZoom] = useState(null); // foto ampliada para verificar identidad
   const [scanMode, setScanMode] = useState('student'); // estado para el render
+  const [earlyAsk, setEarlyAsk] = useState(null); // { person } → salida antes de hora: pide motivo
+  const [earlyForm, setEarlyForm] = useState({ reason: MOTIVOS_SALIDA_ANTICIPADA[0], note: '' });
 
   const html5QrRef = useRef(null);
   const scanModeRef = useRef('student'); // 'student' | 'pass' | 'pickupGroup' (para el callback onScanSuccess)
@@ -101,10 +104,11 @@ export default function Scanner() {
         const student = { id: sDoc.id, ...sDoc.data() };
         const rsnap = await getDocs(query(collection(db, 'attendance', today, 'records'), where('studentId', '==', sid)));
         const rec = rsnap.empty ? null : { id: rsnap.docs[0].id, ...rsnap.docs[0].data() };
-        const inSchool = !!(rec && rec.entryTime && !rec.exitTime);
+        const suspended = !!student.suspended;
+        const inSchool = !suspended && !!(rec && rec.entryTime && !rec.exitTime);
         items.push({
           student, recordId: rec?.id || null, authorizedBy: authBy[sid],
-          inSchool, alreadyOut: !!(rec && rec.exitTime), noEntry: !rec, checked: inSchool,
+          inSchool, alreadyOut: !!(rec && rec.exitTime), noEntry: !rec, suspended, checked: inSchool,
         });
       }
       items.sort((a, b) => `${a.student.lastName}`.localeCompare(`${b.student.lastName}`));
@@ -168,6 +172,13 @@ export default function Scanner() {
 
       const studentDoc = snap.docs[0];
       const student = { id: studentDoc.id, ...studentDoc.data() };
+
+      // Alumno suspendido por adeudo: no se registra el acceso, se manda a administración.
+      if (student.suspended) {
+        setResult({ type: 'suspended', student, time: new Date().toISOString() });
+        return;
+      }
+
       const recordsRef = collection(db, 'attendance', today, 'records');
       const rsnap = await getDocs(query(recordsRef, where('studentId', '==', student.id)));
       const now = new Date().toISOString();
@@ -197,7 +208,18 @@ export default function Scanner() {
       setError('Error al procesar el registro: ' + err.message);
     }
   }
-  async function confirmExit(person) {
+  function confirmExit(person) {
+    if (!pendingExit) return;
+    // Salida antes de la hora regular del nivel: pedir el motivo antes de registrar.
+    if (esSalidaAnticipada(pendingExit.student.nivel)) {
+      setEarlyForm({ reason: MOTIVOS_SALIDA_ANTICIPADA[0], note: '' });
+      setEarlyAsk({ person });
+      return;
+    }
+    doConfirmExit(person, null);
+  }
+
+  async function doConfirmExit(person, earlyExit) {
     if (!pendingExit) return;
     const { student, recordId } = pendingExit;
     const now = new Date().toISOString();
@@ -208,15 +230,26 @@ export default function Scanner() {
         pickedUpById: person?.id || null,
         pickedUpByName: person?.name || 'No registrado',
         pickedUpByRelation: person?.relation || '',
+        ...(earlyExit ? { earlyExit } : {}),
       });
-      setResult({ type: 'exit', student, time: now, pickedUpBy: person });
+      setResult({ type: 'exit', student, time: now, pickedUpBy: person, earlyExit });
       await sendNotification(student, 'exit', now, person);
     } catch (err) {
       setError('Error al registrar la salida: ' + err.message);
     }
     setPendingExit(null);
     setAuthorized([]);
+    setEarlyAsk(null);
   }
+
+  const submitEarlyExit = (e) => {
+    e.preventDefault();
+    doConfirmExit(earlyAsk.person, {
+      reason: earlyForm.reason,
+      note: earlyForm.note.trim(),
+      registeredAt: new Date().toISOString(),
+    });
+  };
 
   function handlePassScan(passCode) {
     const match = authorized.find(p => p.passCode && p.passCode === passCode);
@@ -334,6 +367,42 @@ export default function Scanner() {
           </div>
         )}
 
+        {/* Salida anticipada: motivo por el que se retira */}
+        {earlyAsk && pendingExit && (
+          <div className="modal-overlay" onClick={() => setEarlyAsk(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 className="modal-title" style={{display:'flex', alignItems:'center', gap:8}}>
+                  <Clock size={20} color="var(--warning)"/> Salida anticipada
+                </h3>
+                <button className="modal-close" onClick={() => setEarlyAsk(null)}><XCircle size={16}/></button>
+              </div>
+              <p style={{fontSize:'0.9rem', marginBottom:16}}>
+                <strong>{pendingExit.student.name} {pendingExit.student.lastName}</strong> se retira antes de su hora regular de salida.
+                Indica el motivo:
+              </p>
+              <form onSubmit={submitEarlyExit}>
+                <div className="form-group">
+                  <label className="form-label">Motivo</label>
+                  <select className="form-select" value={earlyForm.reason} onChange={e => setEarlyForm({...earlyForm, reason: e.target.value})}>
+                    {MOTIVOS_SALIDA_ANTICIPADA.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Detalle {earlyForm.reason === 'Otro' ? '' : '(opcional)'}</label>
+                  <textarea className="form-input" rows={3} placeholder="Ej. cita con el dentista a las 12:30"
+                    value={earlyForm.note} onChange={e => setEarlyForm({...earlyForm, note: e.target.value})}
+                    required={earlyForm.reason === 'Otro'} />
+                </div>
+                <div className="modal-footer">
+                  <button type="button" onClick={() => setEarlyAsk(null)} className="btn btn-secondary">Volver</button>
+                  <button type="submit" className="btn btn-primary">Registrar salida anticipada</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* Selección de quién recoge (salida) */}
         {pendingExit && !scanning && (
           <div className="card">
@@ -397,7 +466,7 @@ export default function Scanner() {
             <div className="flex flex-col gap-2">
               {groupPickup.items.map(it => {
                 const s = it.student;
-                const estado = it.inSchool ? null : it.alreadyOut ? 'Ya salió' : 'Sin entrada hoy';
+                const estado = it.inSchool ? null : it.suspended ? 'Suspendido' : it.alreadyOut ? 'Ya salió' : 'Sin entrada hoy';
                 return (
                   <button key={s.id} type="button" onClick={() => toggleGroupItem(s.id)} disabled={!it.inSchool}
                     style={{
@@ -451,7 +520,24 @@ export default function Scanner() {
           </div>
         )}
 
-        {result && result.type !== 'group' && (
+        {result && result.type === 'suspended' && (
+          <div style={{marginTop:16, padding:24, borderRadius:'var(--radius-lg)', textAlign:'center', background:'var(--danger-bg)', border:'2px solid var(--danger)', animation:'slideUp 0.4s ease'}}>
+            <Ban size={56} color="var(--danger)" style={{margin:'0 auto 12px'}} />
+            <h2 style={{fontSize:'1.5rem', fontWeight:800, marginBottom:4, color:'var(--danger)'}}>Cuenta suspendida</h2>
+            <p style={{fontSize:'1.25rem', fontWeight:600, marginBottom:4}}>{result.student.name} {result.student.lastName}</p>
+            <p style={{color:'var(--gris-600)'}}>{result.student.grado} {result.student.nivel} {result.student.grupo}</p>
+            <p style={{marginTop:12, fontWeight:700, color:'var(--danger)'}}>El tutor debe presentarse en administración.</p>
+            <p style={{fontSize:'0.82rem', color:'var(--gris-600)', marginTop:4}}>No se registró el acceso.</p>
+            <div style={{marginTop:24, display:'flex', gap:8, justifyContent:'center'}}>
+              <button onClick={() => { setResult(null); startScanner('student'); }} className="btn btn-primary">
+                <ScanLine size={16} /> Escanear Otro
+              </button>
+              <button onClick={() => setResult(null)} className="btn btn-secondary">Cerrar</button>
+            </div>
+          </div>
+        )}
+
+        {result && result.type !== 'group' && result.type !== 'suspended' && (
           <div className={`scan-result ${result.type === 'entry' ? 'entry' : 'exit'}`} style={{marginTop:16}}>
             {result.type === 'entry' ? <LogIn size={56} color="var(--success)" style={{margin:'0 auto 12px'}} />
               : result.type === 'exit' ? <LogOut size={56} color="var(--info)" style={{margin:'0 auto 12px'}} />
@@ -468,6 +554,11 @@ export default function Scanner() {
             {result.type === 'exit' && (
               <p style={{marginTop:8, fontWeight:600}}>
                 Recogido por {result.pickedUpBy ? `${result.pickedUpBy.name} (${result.pickedUpBy.relation})` : 'No especificado'}
+              </p>
+            )}
+            {result.earlyExit && (
+              <p style={{marginTop:6}}>
+                <span className="badge badge-warning"><Clock size={12}/> Salida anticipada · {result.earlyExit.reason}{result.earlyExit.note ? ` — ${result.earlyExit.note}` : ''}</span>
               </p>
             )}
             <div style={{marginTop:24, display:'flex', gap:8, justifyContent:'center'}}>

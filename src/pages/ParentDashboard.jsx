@@ -4,7 +4,7 @@ import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, delet
 import { updateEmail, updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
-import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock, Camera, Pencil, RefreshCw, StickyNote, GraduationCap } from 'lucide-react';
+import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock, Camera, Pencil, RefreshCw, StickyNote, GraduationCap, ShieldAlert } from 'lucide-react';
 import AnnouncementCard from '../components/AnnouncementCard';
 import { sortAnnouncements } from '../config/avisos';
 import {
@@ -59,6 +59,7 @@ export default function ParentDashboard() {
   const [unreadIds, setUnreadIds] = useState(() => new Set()); // ids resaltados "NUEVO" mientras ve la pestaña
   const [urgentDestacados, setUrgentDestacados] = useState([]); // urgentes recientes para la pantalla de inicio
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [acceptResp, setAcceptResp] = useState(false); // aceptación de responsabilidad al autorizar persona
   const [myPhoto, setMyPhoto] = useState(userData?.photo || '');
   const [updating, setUpdating] = useState(false);
 
@@ -295,7 +296,7 @@ export default function ParentDashboard() {
     setLoading(false);
   };
 
-  const openAddMember = () => { setMemberForm(emptyMember); setEditingMemberId(null); setShowMember(true); };
+  const openAddMember = () => { setMemberForm(emptyMember); setEditingMemberId(null); setAcceptResp(false); setShowMember(true); };
   const openEditMember = (m) => {
     setMemberForm({ name: m.name || '', relation: m.relation || 'Madre', phone: m.phone || '', photo: m.photo || '' });
     setEditingMemberId(m.id);
@@ -342,10 +343,12 @@ export default function ParentDashboard() {
           photo: memberForm.photo || '',
         });
       } else {
+        if (!acceptResp) { alert('Debes aceptar la responsabilidad para autorizar a esta persona.'); setLoading(false); return; }
         await addDoc(collection(db, 'users', user.uid, 'familyMembers'), {
           ...memberForm,
           passCode: generateQR('PASS'),
           active: true,
+          responsibilityAcceptedAt: new Date().toISOString(),
           createdAt: new Date().toISOString(),
         });
       }
@@ -356,10 +359,15 @@ export default function ParentDashboard() {
   };
 
   const toggleMember = async (m) => {
+    if (m.active) {
+      const students_names = students.map(s => s.name).join(', ') || 'tus hijos';
+      if (!window.confirm(`⚠️ ¿Desactivar a ${m.name}?\n\nEsta persona ya NO podrá recoger a ${students_names}. Su credencial QR dejará de ser válida en el filtro de salida hasta que la actives de nuevo.`)) return;
+    }
     await updateDoc(doc(db, 'users', user.uid, 'familyMembers', m.id), { active: !m.active });
     loadFamily();
   };
   const removeMember = async (m) => {
+    if (!window.confirm(`¿Eliminar a ${m.name} de tu grupo familiar?\n\nSu credencial QR quedará invalidada de forma permanente. Esta acción no se puede deshacer.`)) return;
     await deleteDoc(doc(db, 'users', user.uid, 'familyMembers', m.id));
     loadFamily();
   };
@@ -595,6 +603,12 @@ export default function ParentDashboard() {
           <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
             <p style={{color:'var(--gris-500)', fontSize:'0.9rem', flex:'1 1 240px', minWidth:0}}>Personas autorizadas para recoger a tus hijos. Cada una tiene su credencial digital con foto y QR.</p>
             <button onClick={openAddMember} className="btn btn-primary"><Plus size={16}/> Agregar persona</button>
+          </div>
+          <div className="notice notice-info mb-4">
+            <ShieldAlert size={18} style={{flexShrink:0, marginTop:2}}/>
+            <p style={{fontSize:'0.8rem', lineHeight:1.5}}>
+              <strong>Recuerda:</strong> tú eres responsable de las personas que autorizas en tu grupo familiar. La credencial QR de cada persona es personal e intransferible; si alguien ya no debe recoger a tus hijos, desactívala o elimínala.
+            </p>
           </div>
           {familyMembers.length === 0 ? (
             <div className="card"><div className="empty-state"><div className="empty-state-icon">👪</div><p className="empty-state-text">Aún no agregas personas autorizadas.</p></div></div>
@@ -850,9 +864,25 @@ export default function ParentDashboard() {
                 <label className="form-label">Teléfono (opcional)</label>
                 <input className="form-input" value={memberForm.phone} onChange={e => setMemberForm({...memberForm, phone: e.target.value})} />
               </div>
+              {!editingMemberId && (
+                <div className="notice notice-warning" style={{marginBottom:16}}>
+                  <ShieldAlert size={20} style={{flexShrink:0, marginTop:2}}/>
+                  <div>
+                    <p style={{fontSize:'0.83rem', fontWeight:700, marginBottom:4}}>Responsabilidad del tutor</p>
+                    <p style={{fontSize:'0.8rem', lineHeight:1.5}}>
+                      Como padre/madre o tutor, <strong>usted es responsable</strong> de las personas que autoriza para recoger a su(s) hijo(s).
+                      Verifique la identidad de esta persona y asegúrese de que esté enterada de que portará una credencial de recogida a su nombre.
+                    </p>
+                    <label style={{display:'flex', alignItems:'flex-start', gap:8, marginTop:10, cursor:'pointer', fontSize:'0.82rem', fontWeight:600}}>
+                      <input type="checkbox" checked={acceptResp} onChange={e => setAcceptResp(e.target.checked)} style={{marginTop:2, width:16, height:16, accentColor:'var(--guinda)'}} />
+                      Acepto la responsabilidad de autorizar a esta persona para recoger a mi(s) hijo(s).
+                    </label>
+                  </div>
+                </div>
+              )}
               <div className="modal-footer">
                 <button type="button" onClick={closeMember} className="btn btn-secondary">Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={loading || photoBusy}>{loading ? 'Guardando...' : (editingMemberId ? 'Guardar cambios' : 'Crear pase')}</button>
+                <button type="submit" className="btn btn-primary" disabled={loading || photoBusy || (!editingMemberId && !acceptResp)}>{loading ? 'Guardando...' : (editingMemberId ? 'Guardar cambios' : 'Crear pase')}</button>
               </div>
             </form>
           </div>

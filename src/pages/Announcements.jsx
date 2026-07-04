@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { Megaphone, Send, ImagePlus, Paperclip, X } from 'lucide-react';
+import { Megaphone, Send, ImagePlus, Paperclip, X, Pencil } from 'lucide-react';
 import { NOMBRE_PLANTELES, todasLasClases } from '../config/colegio';
 import { PRIORIDADES, CATEGORIAS, sortAnnouncements } from '../config/avisos';
 import { uploadAnnouncementFile, uploadAnnouncementCover, deleteAnnouncementFiles, humanSize } from '../utils/announcements';
@@ -17,6 +17,9 @@ export default function Announcements() {
   const [form, setForm] = useState(emptyForm);
   const [coverFile, setCoverFile] = useState(null);
   const [files, setFiles] = useState([]);
+  const [editing, setEditing] = useState(null);          // aviso en edición (o null = crear)
+  const [keepAtts, setKeepAtts] = useState([]);           // adjuntos existentes que se conservan
+  const [keepCover, setKeepCover] = useState(null);       // portada existente {url, path} o null
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState('');
   const [msg, setMsg] = useState('');
@@ -44,7 +47,24 @@ export default function Announcements() {
   };
   const removeFile = (i) => setFiles(prev => prev.filter((_, idx) => idx !== i));
 
-  const resetForm = () => { setForm(emptyForm); setCoverFile(null); setFiles([]); };
+  const resetForm = () => { setForm(emptyForm); setCoverFile(null); setFiles([]); setEditing(null); setKeepAtts([]); setKeepCover(null); };
+
+  const startEdit = (a) => {
+    setEditing(a);
+    setForm({
+      type: a.scope?.type || 'all',
+      value: a.scope?.type === 'all' ? '' : (a.scope?.value || ''),
+      title: a.title || '',
+      body: a.body || '',
+      priority: a.priority || 'normal',
+      category: a.category || 'general',
+    });
+    setCoverFile(null);
+    setFiles([]);
+    setKeepAtts(a.attachments || []);
+    setKeepCover(a.coverUrl ? { url: a.coverUrl, path: a.coverPath || null } : null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -53,20 +73,21 @@ export default function Announcements() {
     try {
       // Id pregenerado: lo usamos como carpeta en Storage y para escribir el doc
       // una sola vez (así la Cloud Function ya recibe el aviso completo).
-      const ref = doc(collection(db, 'announcements'));
+      // En edición se reutiliza el id del aviso original.
+      const ref = editing ? doc(db, 'announcements', editing.id) : doc(collection(db, 'announcements'));
       const id = ref.id;
 
-      let cover = null;
+      let cover = keepCover;
       if (coverFile) { setProgress('Subiendo portada...'); cover = await uploadAnnouncementCover(id, coverFile); }
 
-      const attachments = [];
+      const attachments = [...keepAtts];
       for (let i = 0; i < files.length; i++) {
         setProgress(`Subiendo archivo ${i + 1} de ${files.length}...`);
         attachments.push(await uploadAnnouncementFile(id, files[i]));
       }
 
-      setProgress('Publicando...');
-      await setDoc(ref, {
+      setProgress(editing ? 'Guardando cambios...' : 'Publicando...');
+      const payload = {
         title: form.title,
         body: form.body,
         priority: form.priority,
@@ -76,13 +97,20 @@ export default function Announcements() {
         coverUrl: cover?.url || null,
         coverPath: cover?.path || null,
         attachments,
-        authorId: user.uid,
-        authorName: userData?.displayName || 'Administración',
-        authorRole: 'admin',
-        createdAt: new Date().toISOString(),
-      });
+      };
+      if (editing) {
+        await setDoc(ref, { ...payload, updatedAt: new Date().toISOString(), editedByName: userData?.displayName || 'Administración' }, { merge: true });
+      } else {
+        await setDoc(ref, {
+          ...payload,
+          authorId: user.uid,
+          authorName: userData?.displayName || 'Administración',
+          authorRole: 'admin',
+          createdAt: new Date().toISOString(),
+        });
+      }
 
-      setMsg('Aviso publicado ✅');
+      setMsg(editing ? 'Aviso actualizado ✅' : 'Aviso publicado ✅');
       resetForm();
       setTimeout(() => setMsg(''), 4000);
       load();
@@ -109,7 +137,16 @@ export default function Announcements() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24, alignItems: 'start' }}>
         <div className="card">
-          <h3 className="card-title" style={{ marginBottom: 16 }}><Megaphone size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Nuevo aviso</h3>
+          <h3 className="card-title" style={{ marginBottom: 16 }}>
+            {editing
+              ? <><Pencil size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Editando aviso</>
+              : <><Megaphone size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Nuevo aviso</>}
+          </h3>
+          {editing && (
+            <div className="notice notice-info" style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: '0.82rem' }}>Estás editando <strong>{editing.title}</strong>. Los cambios se verán reflejados para todos; no se reenvían notificaciones.</p>
+            </div>
+          )}
           <form onSubmit={submit}>
             <div className="form-group">
               <label className="form-label">Destino</label>
@@ -169,6 +206,11 @@ export default function Announcements() {
                   <img src={URL.createObjectURL(coverFile)} alt="portada" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8 }} />
                   <button type="button" onClick={() => setCoverFile(null)} className="btn btn-sm btn-danger" style={{ position: 'absolute', top: 8, right: 8 }}><X size={14} /></button>
                 </div>
+              ) : keepCover ? (
+                <div style={{ position: 'relative' }}>
+                  <img src={keepCover.url} alt="portada actual" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8 }} />
+                  <button type="button" onClick={() => setKeepCover(null)} className="btn btn-sm btn-danger" style={{ position: 'absolute', top: 8, right: 8 }} title="Quitar portada"><X size={14} /></button>
+                </div>
               ) : (
                 <label className="btn btn-secondary w-full" style={{ cursor: 'pointer' }}>
                   <ImagePlus size={16} /> Elegir imagen
@@ -183,6 +225,19 @@ export default function Announcements() {
                 <Paperclip size={16} /> Agregar archivos
                 <input type="file" multiple hidden onChange={addFiles} />
               </label>
+              {keepAtts.length > 0 && (
+                <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
+                  {keepAtts.map((f, i) => (
+                    <div key={`k${i}`} className="flex justify-between items-center" style={{ gap: 8, fontSize: '0.82rem', padding: '6px 10px', border: '1px solid var(--gris-200)', borderRadius: 8, background: 'var(--surface-hover)' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: 'var(--gris-500)', fontSize: '0.72rem' }}>{f.size ? humanSize(f.size) : 'actual'}</span>
+                        <button type="button" onClick={() => setKeepAtts(prev => prev.filter((_, idx) => idx !== i))} className="btn btn-sm btn-danger" title="Quitar adjunto"><X size={12} /></button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {files.length > 0 && (
                 <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
                   {files.map((f, i) => (
@@ -199,9 +254,14 @@ export default function Announcements() {
             </div>
 
             {msg && <p className="badge badge-success" style={{ marginBottom: 12 }}>{msg}</p>}
-            <button type="submit" className="btn btn-primary w-full" disabled={saving}>
-              <Send size={16} /> {saving ? (progress || 'Publicando...') : 'Publicar aviso'}
-            </button>
+            <div className="flex gap-2">
+              {editing && (
+                <button type="button" onClick={resetForm} className="btn btn-secondary" disabled={saving}>Cancelar</button>
+              )}
+              <button type="submit" className="btn btn-primary w-full" style={{ flex: 1 }} disabled={saving}>
+                <Send size={16} /> {saving ? (progress || 'Guardando...') : (editing ? 'Guardar cambios' : 'Publicar aviso')}
+              </button>
+            </div>
           </form>
         </div>
 
@@ -212,7 +272,7 @@ export default function Announcements() {
           ) : (
             <div className="flex flex-col gap-3">
               {list.map(a => (
-                <AnnouncementCard key={a.id} a={a} onDelete={remove} onImageClick={setLightbox} />
+                <AnnouncementCard key={a.id} a={a} onDelete={remove} onEdit={startEdit} onImageClick={setLightbox} />
               ))}
             </div>
           )}

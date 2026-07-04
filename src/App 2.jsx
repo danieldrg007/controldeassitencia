@@ -17,9 +17,6 @@ const Announcements = lazy(() => import('./pages/Announcements'));
 const Messages = lazy(() => import('./pages/Messages'));
 const Subjects = lazy(() => import('./pages/Subjects'));
 const Calendar = lazy(() => import('./pages/Calendar'));
-const Deliveries = lazy(() => import('./pages/Deliveries'));
-const Schedules = lazy(() => import('./pages/Schedules'));
-const Workshops = lazy(() => import('./pages/Workshops'));
 
 const FallbackLoader = () => (
   <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh'}}>
@@ -94,9 +91,6 @@ function AppRoutes() {
         <Route path="/students" element={
           <ProtectedRoute allowedRoles={['superadmin','admin','guard']}><Navbar /><Students /></ProtectedRoute>
         } />
-        <Route path="/entregas" element={
-          <ProtectedRoute allowedRoles={['superadmin','admin','guard']}><Navbar /><Deliveries /></ProtectedRoute>
-        } />
         <Route path="/users" element={
           <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><Users /></ProtectedRoute>
         } />
@@ -125,14 +119,6 @@ function AppRoutes() {
 
         <Route path="/calendar" element={
           <ProtectedRoute allowedRoles={['superadmin','admin','teacher','parent']}><Navbar /><Calendar /></ProtectedRoute>
-        } />
-
-        <Route path="/schedules" element={
-          <ProtectedRoute allowedRoles={['superadmin','admin','teacher','parent']}><Navbar /><Schedules /></ProtectedRoute>
-        } />
-
-        <Route path="/workshops" element={
-          <ProtectedRoute allowedRoles={['superadmin','admin','parent']}><Navbar /><Workshops /></ProtectedRoute>
         } />
 
         <Route path="/parent" element={

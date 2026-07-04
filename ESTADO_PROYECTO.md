@@ -59,7 +59,10 @@ Los roles se normalizan a minúsculas. Las rutas están gateadas por rol en `src
 | ParentDashboard | /parent | Asistencia, Grupo familiar, Recogidas, Avisos, Calificaciones, Notas, Perfil |
 | Kiosk | /kiosk | Modo kiosko pantalla completa, escaneo continuo, recogida |
 | Messages | /messages | Chat en tiempo real (directo + canales de grupo), no leídos |
-| Calendar | /calendar | Calendario de eventos (mes + lista). Admin crea para todo/plantel/grupo; profesor para su grupo. Audiencias: padres/maestros/alumnos/general con restricción de visibilidad |
+| Calendar | /calendar | Calendario de eventos (mes + lista) con **adjuntos** (Storage `events/{id}/`; imágenes en lightbox, PDF en pestaña nueva). Admin crea para todo/plantel/grupo; profesor para su grupo. Audiencias con restricción de visibilidad |
+| Deliveries | /entregas | **Cola de entrega**: padre escanea su QR de recogida (RC-/pase temporal) → hijos entran a "pendientes por entregar" → botón "Llamar" (notifica al tutor, mandar a llamar al plantel) → "Entregado" registra la salida en attendance. Tiempo real, filtro por plantel. También se alimenta desde el Kiosko |
+| Schedules | /schedules | **Horarios** por grupo (grid Lun–Vie): admin edita bloques (hora/materia/profesor); profesor y padre consultan los suyos |
+| Workshops | /workshops | **Talleres**: admin publica (costo, cupo, horario, plantel); padre inscribe hijos → cargo pendiente; admin marca pagado (efectivo/transferencia). Arquitectura Mercado Pago lista en `utils/payments.js` (activar con VITE_PAYMENTS_ENABLED) |
 
 **Otros:** `config/colegio.js` (roles/planteles/niveles/grados/grupos/periodos + helpers classId), `context/AuthContext.jsx`, `firebase.js`, `notifications.js` (FCM), `utils/image.js` (fotos a dataURL), `utils/version.js` (auto-update), `components/` (Navbar, Avatar, NotificationBell).
 
@@ -94,7 +97,11 @@ Los roles se normalizan a minúsculas. Las rutas están gateadas por rol en `src
 | `observations` | notas del profesor (conducta/academica/positiva/tarea, visibleToParent) |
 | `subjects` | catálogo de materias |
 | `grades` | calificaciones por alumno/materia/periodo (escala 0-10, aprobatoria 6) |
-| `events` | calendario: `date`, `time`, `audiences[]` (general/parent/teacher/student), `scope` (all/plantel/class), `category`, autor |
+| `events` | calendario: `date`, `time`, `audiences[]`, `scope`, `category`, autor, `attachments[]` (Storage `events/{id}/`) |
+| `pickupQueue/{date}/items` | cola de entrega (docId = studentId, no duplica): requestedByName/Code/Uid, status waiting→called→delivered, attendanceRecordId, parentIds[] |
+| `schedules` | horario por grupo (docId = classId saneado): blocks[{day 0-4, start, end, subject, teacher}] |
+| `workshops` | talleres: name, description, cost, capacity, schedule, plantel ('' = todos) |
+| `workshopEnrollments` | inscripciones: workshopId, studentId, parentId, cost, paymentStatus pending/paid, paymentMethod |
 
 Reglas en `firestore.rules` con funciones por rol. **Regla clave:** ramas por rol primero, las que leen `resource.data` al final; NO usar `is list` sobre `resource.data` en colecciones que se consultan con `array-contains`.
 
@@ -179,6 +186,24 @@ Se pasó de **35 errores → 0 errores** (`npm run lint` ahora limpio; build OK)
 
 ## 13. Historial de cambios de este documento
 
+- **2026-07-03 (sesión grande — 14 funcionalidades + rediseño visual):**
+  - **Cola de entrega** (`/entregas` + `utils/pickupQueue.js` + colección `pickupQueue`): padre escanea su QR al llegar → hijos en lista de pendientes → llamar al plantel (notifica) → "Entregado" registra la salida. El Kiosko también encola códigos RC-/PASS-.
+  - **Salidas anticipadas**: al registrar salida antes de la hora del nivel (`HORA_SALIDA` en colegio.js) el Scanner pide motivo (modal, `MOTIVOS_SALIDA_ANTICIPADA`); se guarda `earlyExit{reason,note}` en attendance.
+  - **Suspensión por adeudo**: botón en Students (campo `suspended`); Scanner/Kiosk muestran "Cuenta suspendida — presentarse en administración" y NO registran acceso; recogidas grupales lo bloquean.
+  - **Cambio de grupo** dedicado en Students (modal, guarda `lastGroupChange`).
+  - **Promoción de grado masiva** (botón "Promover grado" en Students, solo admin): preview (suben/egresan/revisar plantel/sin datos), confirmación escribiendo PROMOVER; helper `promoverAlumno` en colegio.js; egresados con badge.
+  - **Leyenda de responsabilidad** al agregar familiar (checkbox obligatorio, guarda `responsibilityAcceptedAt`) + aviso permanente en pestaña Familia + confirmaciones al desactivar/eliminar pases.
+  - **Editar aviso** (Announcements + AnnouncementCard con prop onEdit): formulario pre-llenado, conserva/quita adjuntos y portada, `updatedAt` + "editado".
+  - **Reportes de pase de lista** PDF/Excel (botones en TeacherDashboard; `utils/reports.js` con jspdf/xlsx en import dinámico).
+  - **Adjuntos en calendario** (`utils/eventFiles.js`, storage.rules ruta `events/`): subir en crear/editar, ver imagen en lightbox / abrir PDF.
+  - **Horarios** (`/schedules`, colección `schedules`): admin arma bloques por grupo; profesor/padre consultan.
+  - **Talleres** (`/workshops`, colecciones `workshops`/`workshopEnrollments`, `utils/payments.js`): inscripción + pago pendiente/pagado; Mercado Pago documentado como paso futuro.
+  - **Admins por plantel/sección**: campos `adminPlantel`/`adminNivel` en la cuenta admin (Users.jsx); Dashboard/Students/Entregas filtran por ese alcance (client-side; superadmin ve todo).
+  - **Rediseño visual** (index.css): fondo con halos sutiles vino/dorado, botón primario con gradiente, títulos con gradiente vino, navbar y bottom-nav del padre con glass/blur, sombras y radios más ricos, scrollbar/selection institucionales, animaciones (shimmer, floaty, pulso en badges), clases `.notice-*` y `.skeleton`. Paleta intacta.
+  - **DEPLOY NECESARIO**: `firebase deploy --only firestore:rules,storage,hosting` (reglas nuevas: pickupQueue, schedules, workshops, workshopEnrollments; storage: events/).
+  - Deps nuevas: jspdf, jspdf-autotable (dinámicos). Lint 0 errores / 28 warnings (patrón preexistente).
+
+- **2026-07-01:** Profesores importados COMPLETO — se validó el Excel (`profesores .xlsx`): 198 filas, 116 candidatos con correo válido, 18 sin correo (ignorados). Se crearon los **12 faltantes** que habían fallado por el bloqueo de Auth (script one-off web-SDK: app primaria como ricfirebase para Firestore + app secundaria para el signUp, pausas de 1.2s). Verificado: **0 faltantes**, los 116 profesores existen. Todos con contraseña `123456`.
 - **2026-06-29:** creación del documento. Estado: 10 commits sin push, importación de profesores desde Excel agregada, todo lo demás en vivo.
 - **2026-06-29:** limpieza de deuda técnica punto 12 — lint de 35 errores a 0 (sin commit todavía). Ver detalle en sección 12.
 - **2026-06-29:** FIX importación masiva — daba 400 `auth/too-many-requests` (Firebase bloquea crear muchas cuentas seguidas desde el navegador). Se agregó retardo de 900ms entre cuentas + reintento con espera creciente (6/12/18s) en `auth/too-many-requests`, indicador "Pausa anti-bloqueo" y se muestra el motivo real del error en la tabla. Re-subir el mismo archivo reintenta solo los faltantes. (Si sigue fallando con lotes grandes, la solución robusta sería una Cloud Function con Admin SDK.) Desplegado.
