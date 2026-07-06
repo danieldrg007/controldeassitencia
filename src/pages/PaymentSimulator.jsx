@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { db } from '../firebase';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../firebase';
 import { CreditCard, ShieldCheck, CheckCircle2, ArrowLeft, Lock } from 'lucide-react';
 import { fmtMoney } from '../utils/payments';
 
@@ -49,16 +49,9 @@ export default function PaymentSimulator() {
 
     try {
       if (!enrollmentId) throw new Error('Falta referencia de inscripción.');
-      const ref = doc(db, 'workshopEnrollments', enrollmentId);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) throw new Error('Inscripción no encontrada.');
-
-      await updateDoc(ref, {
-        paymentStatus: 'paid',
-        paymentMethod: method === 'card' ? 'mercadopago (simulado - tarjeta)' : method === 'oxxo' ? 'mercadopago (simulado - OXXO)' : 'mercadopago (simulado - transferencia)',
-        paidAt: new Date().toISOString(),
-        paidRegisteredBy: 'Simulador Mercado Pago',
-      });
+      
+      const confirmPayment = httpsCallable(functions, 'confirmSimulatedPayment');
+      await confirmPayment({ enrollmentId, method });
 
       setStep(STEPS.SUCCESS);
     } catch (err) {

@@ -411,6 +411,46 @@ export const createWorkshopPreference = onCall(async (request) => {
   }
 });
 
+// 6b) Confirmar pago simulado (llamado por el simulador visual del frontend)
+export const confirmSimulatedPayment = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+  }
+
+  const { enrollmentId, method } = request.data;
+  if (!enrollmentId) {
+    throw new HttpsError('invalid-argument', 'Falta el enrollmentId.');
+  }
+
+  try {
+    const snap = await db.doc(`workshopEnrollments/${enrollmentId}`).get();
+    if (!snap.exists) {
+      throw new HttpsError('not-found', 'Inscripción no encontrada.');
+    }
+    const enr = snap.data();
+    if (enr.paymentStatus === 'paid') {
+      throw new HttpsError('failed-precondition', 'Esta inscripción ya está pagada.');
+    }
+    // Verificar que el usuario es el dueño de la inscripción
+    if (enr.parentId !== request.auth.uid) {
+      throw new HttpsError('permission-denied', 'No tienes permiso para confirmar este pago.');
+    }
+
+    await db.doc(`workshopEnrollments/${enrollmentId}`).update({
+      paymentStatus: 'paid',
+      paymentMethod: `mercadopago (simulado - ${method || 'tarjeta'})`,
+      paidAt: new Date().toISOString(),
+      paidRegisteredBy: 'Simulador Mercado Pago',
+    });
+
+    return { success: true };
+  } catch (error) {
+    if (error.code) throw error; // Re-throw HttpsError
+    console.error('Error confirming simulated payment:', error);
+    throw new HttpsError('internal', 'Error al confirmar el pago.');
+  }
+});
+
 // 7) Webhook de Mercado Pago para procesar notificaciones
 export const mercadoPagoWebhook = onRequest(async (req, res) => {
   try {
