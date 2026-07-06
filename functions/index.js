@@ -1,10 +1,13 @@
 /* global process */
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
+
+const mpAccessToken = defineSecret('MERCADOPAGO_ACCESS_TOKEN');
 initializeApp();
 const db = getFirestore();
 
@@ -347,7 +350,7 @@ export const calendarFeed = onRequest(async (req, res) => {
 });
 
 // 6) Endpoint para crear preferencia de pago de Mercado Pago
-export const createWorkshopPreference = onCall(async (request) => {
+export const createWorkshopPreference = onCall({ secrets: [mpAccessToken] }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
   }
@@ -367,7 +370,7 @@ export const createWorkshopPreference = onCall(async (request) => {
       throw new HttpsError('failed-precondition', 'Esta inscripción ya está pagada.');
     }
 
-    const token = process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-TOKEN-PENDIENTE';
+    const token = mpAccessToken.value() || 'TEST-TOKEN-PENDIENTE';
     const baseUrl = 'https://mi-app-oliverio.web.app';
 
     // MODO SIMULADOR: Si aún no tenemos el token real, redirigir al simulador visual
@@ -395,13 +398,9 @@ export const createWorkshopPreference = onCall(async (request) => {
         pending: `${baseUrl}/workshops`
       },
       auto_return: 'approved',
-      external_reference: enrollmentId
-      // notification_url se puede configurar en el dashboard de MP o definir mediante: process.env.MP_WEBHOOK_URL
+      external_reference: enrollmentId,
+      notification_url: 'https://mercadopagowebhook-ekyafgd2zq-uc.a.run.app'
     };
-    if (process.env.MP_WEBHOOK_URL) {
-      body.notification_url = process.env.MP_WEBHOOK_URL;
-    }
-
     const response = await preference.create({ body });
     return { init_point: response.init_point };
 
@@ -452,17 +451,19 @@ export const confirmSimulatedPayment = onCall(async (request) => {
 });
 
 // 7) Webhook de Mercado Pago para procesar notificaciones
-export const mercadoPagoWebhook = onRequest(async (req, res) => {
+export const mercadoPagoWebhook = onRequest({ secrets: [mpAccessToken] }, async (req, res) => {
   try {
     const topic = req.query.topic || req.body?.type;
     const id = req.query['data.id'] || req.body?.data?.id;
+    console.log('Webhook recibido:', { topic, id, body: req.body, query: req.query });
 
     if ((topic === 'payment' || topic === 'payment.created' || topic === 'payment.updated') && id) {
-      const token = process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-TOKEN-PENDIENTE';
+      const token = mpAccessToken.value() || 'TEST-TOKEN-PENDIENTE';
       const client = new MercadoPagoConfig({ accessToken: token });
       const paymentClient = new Payment(client);
 
       const p = await paymentClient.get({ id });
+      console.log(`Estado del pago ${id}: ${p.status}, external_reference: ${p.external_reference}`);
       
       if (p.status === 'approved' && p.external_reference) {
         const enrollmentId = p.external_reference;
@@ -474,7 +475,17 @@ export const mercadoPagoWebhook = onRequest(async (req, res) => {
           paymentId: String(id),
           paidRegisteredBy: 'Mercado Pago Webhook'
         });
+        console.log(`Inscripción ${enrollmentId} marcada como pagada.`);
+      } else if ((p.status === 'pending' || p.status === 'in_process') && p.external_reference) {
+        const enrollmentId = p.external_reference;
+        
+        await db.doc(`workshopEnrollments/${enrollmentId}`).update({
+          paymentStatus: 'pending_payment',
+          paymentId: String(id)
+        });
+        console.log(`Inscripción ${enrollmentId} marcada como ticket generado (pendiente de pago).`);
       }
+
     }
     
     // MP requiere un HTTP 200 OK rápido

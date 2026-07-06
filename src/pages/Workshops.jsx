@@ -260,7 +260,7 @@ export default function Workshops() {
                     <div style={{ fontSize: '0.8rem', color: 'var(--gris-500)' }}>{enr.workshopName} · {fmtMoney(enr.cost)}</div>
                   </div>
                   <span className={`badge ${st.badge}`}>{st.label}</span>
-                  {enr.paymentStatus === 'pending' && (
+                  {(enr.paymentStatus === 'pending' || enr.paymentStatus === 'pending_payment') && (
                     <div style={{ display: 'flex', gap: 6 }}>
                       {PAYMENTS_ENABLED && (
                         <button onClick={() => payOnline(enr)} className="btn btn-sm btn-primary"><CreditCard size={14} /> Pagar en línea</button>
@@ -571,7 +571,7 @@ export default function Workshops() {
                         </div>
                       </div>
                       <span className={`badge ${st.badge}`}>{st.label}</span>
-                      {enr.paymentStatus === 'pending' && (
+                      {(enr.paymentStatus === 'pending' || enr.paymentStatus === 'pending_payment') && (
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button onClick={() => markPaid(enr, 'efectivo')} className="btn btn-sm btn-success" title="Marcar pagado en efectivo"><Wallet size={13} /> Efectivo</button>
                           <button onClick={() => markPaid(enr, 'transferencia')} className="btn btn-sm btn-success" title="Marcar pagado por transferencia"><CheckCircle2 size={13} /> Transf.</button>

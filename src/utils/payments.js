@@ -23,8 +23,9 @@ export const PAYMENT_METHODS = {
 };
 
 export const PAYMENT_STATUS = {
-  pending: { label: 'Pago pendiente', badge: 'badge-warning' },
-  paid:    { label: 'Pagado',         badge: 'badge-success' },
+  pending:         { label: 'Pago pendiente', badge: 'badge-warning' },
+  pending_payment: { label: 'Boleto OXXO/SPEI generado (En espera)', badge: 'badge-info' },
+  paid:            { label: 'Pagado',         badge: 'badge-success' },
 };
 
 export const fmtMoney = (n) =>
