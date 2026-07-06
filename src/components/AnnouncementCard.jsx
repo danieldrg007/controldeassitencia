@@ -27,7 +27,6 @@ export default function AnnouncementCard({ a, onDelete, onEdit, onImageClick, un
       style={{
         padding: 0,
         overflow: 'hidden',
-        borderLeft: `5px solid ${isUrgent ? pr.color : cat.color}`,
         ...(isUrgent ? { boxShadow: '0 0 0 1px #FECACA', background: '#FFFBFB' } : {}),
         ...(unread ? { outline: '2px solid var(--accent, #C2A14E)', outlineOffset: 0 } : {}),
       }}

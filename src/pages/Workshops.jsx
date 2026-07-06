@@ -288,7 +288,7 @@ export default function Workshops() {
             const list = enrolledByWorkshop[w.id] || [];
             const full = w.capacity > 0 && list.length >= w.capacity;
             return (
-              <div key={w.id} className="card" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', borderLeft: '5px solid var(--brand)' }}>
+              <div key={w.id} className="card" style={{ display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
                 {w.coverUrl && (
                   <div className="aviso-cover zoom" onClick={() => setLightbox(w.coverUrl)}>
                     <div className="aviso-cover-bg" style={{ backgroundImage: `url("${w.coverUrl}")` }} />
