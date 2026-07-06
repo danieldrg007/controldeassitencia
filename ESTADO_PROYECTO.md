@@ -197,7 +197,41 @@ Se pasó de **35 errores → 0 errores** (`npm run lint` ahora limpio; build OK)
 
 - **2026-07-06 (Horarios dinámicos en talleres). SIN DEPLOY:** En el módulo `Workshops.jsx` se rediseñó la entrada del horario. En lugar de un campo de texto libre, se agregó un constructor dinámico que permite añadir múltiples filas con selectores de "Día" (Lunes a Domingo), "Hora de inicio" y "Hora de fin". Esto elimina la ambigüedad en la captura. Internamente guarda un arreglo de objetos `schedules` y genera automáticamente el string de `schedule` concatenado (ej. "Lunes 14:00 - 16:00, Miércoles 14:00 - 16:00") para mantener la compatibilidad con el resto de la interfaz. Los talleres antiguos que solo tienen texto mantienen su formato hasta que se editen.
 
-- **2026-07-06 (Integración Mercado Pago). SIN DEPLOY:** Se instaló e integró la librería `mercadopago` (SDK v2) en las Cloud Functions. Se crearon los endpoints `createWorkshopPreference` (onCall) para generar las preferencias de cobro de talleres y `mercadoPagoWebhook` (onRequest) para recibir notificaciones de pagos exitosos y actualizar Firestore automáticamente. En el frontend se actualizó `startOnlinePayment` en `payments.js` para llamar a la nueva función y redirigir al padre al `init_point` de Mercado Pago inmediatamente después de inscribir al alumno en `Workshops.jsx`. **Modo Simulación Activado:** Dado que aún no hay Access Token real, el sistema detectará esto automáticamente, marcará el pago como exitoso y redirigirá al taller sin necesidad de abrir la pasarela, permitiendo demostrar el flujo completo. Para pasar a producción solo hay que agregar el Access Token real a las variables de entorno de Firebase.
+- **2026-07-06 (Integración Mercado Pago + Simulador Visual de Checkout). DEPLOY COMPLETADO (hosting + functions):**
+
+  **Arquitectura completa del flujo de pago:**
+
+  El sistema de pagos tiene dos modos: **simulador** (activo ahora) y **producción** (cuando se inyecte el Access Token real de Mercado Pago). El modo se detecta automáticamente según el valor de `process.env.MERCADOPAGO_ACCESS_TOKEN` en las Cloud Functions.
+
+  **Archivos involucrados:**
+  - `src/utils/payments.js` — Constantes (`PAYMENTS_ENABLED`, `PAYMENT_STATUS`, `PAYMENT_METHODS`), helper `fmtMoney()` y función `startOnlinePayment(enrollment)` que llama a la Cloud Function `createWorkshopPreference` y redirige al `init_point` devuelto.
+  - `src/pages/Workshops.jsx` — Botón "Pagar en línea" visible cuando `PAYMENTS_ENABLED=true` (variable de entorno `VITE_PAYMENTS_ENABLED=true` en el archivo `.env` del proyecto). Al hacer clic llama a `payOnline(enr)` → `startOnlinePayment()`.
+  - `src/pages/PaymentSimulator.jsx` — Página completa que replica la experiencia de checkout de Mercado Pago. Recibe por query params: `eid` (enrollmentId), `name` (nombre del taller), `student` (nombre del alumno), `amount` (monto). Tiene 3 métodos de pago (Tarjeta/OXXO/Transferencia), formulario con validación, pantalla de procesamiento con spinner (~2.5s), pantalla de éxito con palomita animada y redirección automática en 4s, y pantalla de error con botón de reintento.
+  - `src/App.jsx` — Ruta `/payment-simulator` protegida para roles `superadmin`, `admin`, `parent`. No incluye `<Navbar />` para simular una experiencia externa tipo pasarela de pago.
+  - `functions/index.js` — Tres Cloud Functions relacionadas:
+    1. `createWorkshopPreference` (onCall): Recibe `enrollmentId`. Si el token es `'TEST-TOKEN-PENDIENTE'` o `'SIMULACION'`, devuelve `init_point` apuntando a `/payment-simulator?eid=...&name=...&student=...&amount=...`. Si el token es real, crea una Preference de Mercado Pago con el SDK y devuelve el `init_point` real de MP.
+    2. `confirmSimulatedPayment` (onCall): Llamada desde `PaymentSimulator.jsx` para confirmar el pago simulado. Verifica autenticación, que la inscripción exista y no esté pagada, y que el `parentId` coincida con el usuario autenticado. Actualiza `paymentStatus: 'paid'`, `paymentMethod`, `paidAt` y `paidRegisteredBy` usando el Admin SDK (bypasea reglas de Firestore). **Esta función existe porque las reglas de Firestore correctamente impiden que un padre escriba directamente en `workshopEnrollments`.**
+    3. `mercadoPagoWebhook` (onRequest): Endpoint para recibir notificaciones IPN/webhook de Mercado Pago en producción. Verifica que el pago sea `approved` y actualiza la inscripción correspondiente vía `external_reference`.
+
+  **Flujo completo del simulador (modo actual):**
+  1. Padre ve inscripción pendiente → clic "Pagar en línea"
+  2. `startOnlinePayment()` llama a `createWorkshopPreference` (Cloud Function)
+  3. CF detecta token simulado → devuelve URL del simulador con datos en query params
+  4. Frontend redirige a `/payment-simulator?eid=...&name=...&student=...&amount=...`
+  5. Padre ve checkout azul estilo MP → llena tarjeta (o elige OXXO/Transferencia) → clic "Pagar"
+  6. Simulador llama a `confirmSimulatedPayment` (Cloud Function) con `enrollmentId` y `method`
+  7. CF valida permisos y marca la inscripción como pagada en Firestore (Admin SDK)
+  8. Pantalla verde "¡Pago aprobado!" → redirección automática a `/workshops`
+
+  **Para pasar a producción (cuando tengas el Access Token):**
+  1. Ejecutar: `firebase functions:secrets:set MERCADOPAGO_ACCESS_TOKEN` y pegar el token
+  2. Redesplegar functions: `firebase deploy --only functions`
+  3. El sistema automáticamente usará el checkout REAL de Mercado Pago en lugar del simulador
+  4. El webhook `mercadoPagoWebhook` se encargará de confirmar los pagos reales
+  5. La URL del webhook para configurar en el dashboard de MP es: `https://mercadopagowebhook-ekyafgd2zq-uc.a.run.app`
+
+  **Variable de entorno importante:**
+  - `.env` del proyecto: `VITE_PAYMENTS_ENABLED=true` — controla si el botón "Pagar en línea" aparece en la UI. Si se pone `false` o se quita, el botón desaparece y solo se muestra el texto "El pago en línea estará disponible próximamente."
 
 - **2026-07-06 (UX en creación de talleres). SIN DEPLOY:** Se mejoró significativamente la interfaz de usuario para la creación de talleres en `Workshops.jsx` con el objetivo de reducir errores de llenado. El formulario ahora está dividido visualmente en tres secciones ("Información General", "Costo y Cupo", "Horario"). Se cambiaron los selects por chips para elegir el plantel de manera más rápida, se añadieron íconos empotrados en los inputs de moneda y cupo, y el campo de horario ahora cuenta con botones de autocompletado para insertar rangos de días y horas estandarizados con un solo clic.
 
