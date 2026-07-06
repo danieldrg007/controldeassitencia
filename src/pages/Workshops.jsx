@@ -589,9 +589,9 @@ export default function Workshops() {
 
       {/* Lightbox para previsualizar imágenes */}
       {lightbox && (
-        <div className="lightbox" onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="Vista previa" onClick={e => e.stopPropagation()} />
-          <button className="lightbox-close" onClick={() => setLightbox(null)}><X size={24} /></button>
+        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }}>
+          <button onClick={() => setLightbox(null)} className="btn btn-sm" style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none' }}><X size={24} /></button>
+          <img src={lightbox} alt="Vista previa" onClick={e => e.stopPropagation()} style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 8 }} />
         </div>
       )}
     </div>
