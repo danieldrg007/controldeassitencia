@@ -5,7 +5,8 @@ import { APP_VERSION, fetchLatestVersion, forceUpdate } from '../utils/version';
 
 // Campanita de notificaciones de la barra: centraliza el aviso de nueva versión
 // y los mensajes de chat sin leer en un panel desplegable (no invasivo).
-export default function NotificationBell({ unread = 0, hasChat = false }) {
+// `up`: abre el panel hacia arriba (cuando la campana vive al pie del sidebar).
+export default function NotificationBell({ unread = 0, hasChat = false, up = false }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -53,7 +54,7 @@ export default function NotificationBell({ unread = 0, hasChat = false }) {
       </button>
 
       {open && (
-        <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 10px)', width: 300, maxWidth: '88vw', background: '#fff', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--surface-border)', zIndex: 200, overflow: 'hidden', color: 'var(--text-main)', animation: 'slideDown 0.18s ease' }}>
+        <div style={{ position: 'absolute', ...(up ? { left: 0, bottom: 'calc(100% + 10px)' } : { right: 0, top: 'calc(100% + 10px)' }), width: 300, maxWidth: '88vw', background: '#fff', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-xl)', border: '1px solid var(--surface-border)', zIndex: 200, overflow: 'hidden', color: 'var(--text-main)', animation: up ? 'slideUp 0.18s ease' : 'slideDown 0.18s ease' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--surface-border)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Bell size={16} color="var(--guinda)" /> Notificaciones
           </div>

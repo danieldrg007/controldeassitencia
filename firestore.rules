@@ -73,7 +73,13 @@ service cloud.firestore {
 
       allow update: if signedIn() && (
         isAdmin() ||
-        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+        // Un usuario puede editar su propio perfil, pero NO cambiarse el rol
+        // ni quitarse la suspensión de acceso que puso la administración.
+        (
+          request.auth.uid == userId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.get('accessSuspended', false) == resource.data.get('accessSuspended', false)
+        )
       );
 
       allow delete: if signedIn() && isAdmin();

@@ -16,6 +16,7 @@ export default function Announcements() {
   const [list, setList] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [coverFile, setCoverFile] = useState(null);
+  const [coverPreview, setCoverPreview] = useState(null); // object URL de la portada elegida
   const [files, setFiles] = useState([]);
   const [editing, setEditing] = useState(null);          // aviso en edición (o null = crear)
   const [keepAtts, setKeepAtts] = useState([]);           // adjuntos existentes que se conservan
@@ -33,6 +34,14 @@ export default function Announcements() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Vista previa de la portada: crea (y libera) el object URL al cambiar el archivo.
+  useEffect(() => {
+    if (!coverFile) { setCoverPreview(null); return; }
+    const url = URL.createObjectURL(coverFile);
+    setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [coverFile]);
 
   const scopeLabel = () => {
     if (form.type === 'all') return 'Todo el colegio';
@@ -201,16 +210,21 @@ export default function Announcements() {
 
             <div className="form-group">
               <label className="form-label">Imagen de portada (opcional)</label>
-              {coverFile ? (
-                <div style={{ position: 'relative' }}>
-                  <img src={URL.createObjectURL(coverFile)} alt="portada" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8 }} />
-                  <button type="button" onClick={() => setCoverFile(null)} className="btn btn-sm btn-danger" style={{ position: 'absolute', top: 8, right: 8 }}><X size={14} /></button>
-                </div>
-              ) : keepCover ? (
-                <div style={{ position: 'relative' }}>
-                  <img src={keepCover.url} alt="portada actual" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8 }} />
-                  <button type="button" onClick={() => setKeepCover(null)} className="btn btn-sm btn-danger" style={{ position: 'absolute', top: 8, right: 8 }} title="Quitar portada"><X size={14} /></button>
-                </div>
+              {(coverFile || keepCover) ? (
+                <>
+                  <div style={{ position: 'relative' }}>
+                    <div className="aviso-cover aviso-cover-form">
+                      <div className="aviso-cover-bg" style={{ backgroundImage: `url("${coverFile ? coverPreview : keepCover.url}")` }} />
+                      <img src={coverFile ? coverPreview : keepCover.url} alt="portada" className="aviso-cover-img" />
+                    </div>
+                    <button type="button" onClick={() => { setCoverFile(null); setKeepCover(null); }} className="btn btn-sm btn-danger" style={{ position: 'absolute', top: 8, right: 8 }} title="Quitar portada"><X size={14} /></button>
+                  </div>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--gris-500)', marginTop: 6 }}>Así se verá la portada. Se ajusta a un marco 16:9 uniforme, sin recortar tu imagen.</p>
+                  <label className="btn btn-secondary btn-sm w-full" style={{ cursor: 'pointer', marginTop: 8 }}>
+                    <ImagePlus size={14} /> Cambiar imagen
+                    <input type="file" accept="image/*" hidden onChange={e => { setCoverFile(e.target.files?.[0] || null); setKeepCover(null); }} />
+                  </label>
+                </>
               ) : (
                 <label className="btn btn-secondary w-full" style={{ cursor: 'pointer' }}>
                   <ImagePlus size={16} /> Elegir imagen

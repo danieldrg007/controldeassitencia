@@ -1,13 +1,13 @@
-# 📋 Estado del Proyecto — Entradas Oliverio
+# 📋 Estado del Proyecto — Mi App Oliverio
 
 > Documento vivo. Léelo al iniciar cada sesión y actualízalo al cerrar.
-> **Última actualización:** 2026-06-29
+> **Última actualización:** 2026-07-04
 
 ---
 
 ## 1. Resumen
 
-App web de **control de acceso escolar** del colegio Oliverio: entradas/salidas con QR, asistencia a clase por profesor, recogidas (incl. autorizadas), avisos, chat, calificaciones y notas de los profesores.
+App web **Mi App Oliverio** (control de acceso escolar, entradas/salidas con QR, asistencia a clase por profesor, recogidas, avisos, chat, calificaciones y notas).
 
 - **Stack:** React 19 + Vite 8 + Firebase, Tailwind v3 (paleta institucional vino/dorado/beige).
 - **Firebase projectId:** `mi-app-oliverio`
@@ -17,14 +17,20 @@ App web de **control de acceso escolar** del colegio Oliverio: entradas/salidas 
 
 ---
 
-## 2. Estado actual (2026-06-29)
+## 2. Estado actual (2026-07-04)
 
-- **Git:** rama `main`, working tree limpio, **10 commits adelante de `origin/main`** → falta `git push`.
-- **Build:** `npm run build` pasa (hay errores de lint preexistentes que no rompen el build).
-- **Deploy:** hosting + firestore.rules + functions desplegados y funcionando.
+- **Git:** rama `main`. Todo el trabajo del 2026-07-04 está **en el working tree SIN commit** (solo desplegado en hosting). Sigue pendiente `git push` de los commits previos.
+- **Build:** `npm run build` pasa (hay warnings de lint preexistentes que no rompen el build).
+- **Deploy:** hosting + firestore.rules + storage + functions desplegados y funcionando.
 
-### Último avance
-Importación masiva de profesores desde Excel de HRMS (página `ImportTeachers.jsx`, dependencia `xlsx`, ruta `/import-teachers`). Mejoras de tamaño de iconos en móvil. Enlace de acceso de profesores ahora incluye contraseña.
+### Último avance (2026-07-04, ver detalle en sección 13)
+- **Rediseño radical de la interfaz** (app shell): sidebar en escritorio, topbar + drawer en tablet, bottom-nav estilo app en móvil. Login split-screen. Tipografía display Sora, botones pill, modales bottom-sheet en móvil. Marca renombrada a "Mi App Oliverio". Paleta institucional intacta.
+- **Portal de padres**: tarjeta del alumno rediseñada, correo institucional del alumno obligatorio al registrarlo.
+- **Suspensión de acceso** por padre desde Users (switch), bloqueo en tiempo real (AuthContext con onSnapshot).
+- **Auto-registro de padres** reactivado en el Login (solo rol parent).
+- **Calendario**: sección "Próximos a vencer" con cuenta regresiva, navegación con selectores mes/año + botón Hoy, e historial de eventos.
+- **Módulo Asignar profesores** (`/teacher-assign`): planteles (multiplantel), grupos dinámicos y materias.
+- Gestión de Alumnos: botones de acción con etiqueta visible.
 
 ---
 
@@ -33,7 +39,7 @@ Importación masiva de profesores desde Excel de HRMS (página `ImportTeachers.j
 | Rol | Home | Acceso |
 |-----|------|--------|
 | `superadmin` | /dashboard | TODO (incl. /parent y /teacher) |
-| `admin` | /dashboard | Dashboard, Scanner, Students, Users, Import, Announcements, Subjects, Kiosk, Teacher, Messages |
+| `admin` | /dashboard | Dashboard, Scanner, Students, Users, Import, Announcements, Subjects, TeacherAssign, Kiosk, Teacher, Messages |
 | `guard` (Checador) | /dashboard | Dashboard, Scanner, Students, Kiosk |
 | `teacher` (Profesor) | /teacher | TeacherDashboard, Messages |
 | `parent` (Padre/Tutor) | /parent | ParentDashboard, Messages |
@@ -47,19 +53,20 @@ Los roles se normalizan a minúsculas. Las rutas están gateadas por rol en `src
 
 | Página | Ruta | Qué hace |
 |--------|------|----------|
-| Login | /login | Iniciar sesión / crear cuenta (toggle segmentado) |
+| Login | /login | Iniciar sesión / **crear cuenta** (toggle segmentado; el auto-registro crea SOLO rol parent). Split-screen con panel de marca |
 | Dashboard | /dashboard | Stats: vista Diaria / Clase / Mensual, filtros plantel/nivel/grado/grupo, export |
 | Scanner | /scanner | Escaneo QR entrada/salida + recogida (quién recoge) + recogida con pase temporal |
-| Students | /students | CRUD de alumnos + genera/imprime QR |
-| Users | /users | Gestión de usuarios por apartados, alta, enlaces de acceso, reset password |
+| Students | /students | CRUD de alumnos + genera/imprime QR. Botones de acción con etiqueta visible (Editar/Cambiar grupo/Suspender/Imprimir QR/Eliminar) |
+| Users | /users | Gestión de usuarios por apartados, alta, enlaces de acceso, reset password. En Padres: **hijos registrados** (con correo institucional) + **switch de suspensión de acceso**. En Profesores: botón "Asignar" → /teacher-assign |
 | ImportTeachers | /import-teachers | Importación masiva de profesores desde Excel de HRMS |
 | Announcements | /announcements | Admin publica avisos (all / plantel / clase) con prioridad, categoría, imagen de portada y adjuntos (PDF/imágenes); borrado en cascada con Storage |
 | Subjects | /subjects | Catálogo de materias (para calificaciones) |
-| TeacherDashboard | /teacher | Pase de lista, Alumnos, Avisos, Calificaciones, Perfil, notas/observaciones |
-| ParentDashboard | /parent | Asistencia, Grupo familiar, Recogidas, Avisos, Calificaciones, Notas, Perfil |
+| TeacherAssign | /teacher-assign | **Asignar materias y planteles** (admin): planteles (multiplantel), grupos dinámicos (plantel→nivel→grado, A/B) y materias por profesor. Guarda `planteles[]`, `classIds[]`, `subjectIds[]`, `subjectNames[]` |
+| TeacherDashboard | /teacher | Pase de lista, Alumnos, Avisos, Calificaciones (acotadas a `subjectIds` asignados si los hay), Perfil, notas/observaciones |
+| ParentDashboard | /parent | Asistencia (tarjeta del alumno rediseñada), Grupo familiar, Recogidas, Avisos, Calificaciones, Notas, Perfil. Al registrar alumno pide **correo institucional** obligatorio |
 | Kiosk | /kiosk | Modo kiosko pantalla completa, escaneo continuo, recogida |
 | Messages | /messages | Chat en tiempo real (directo + canales de grupo), no leídos |
-| Calendar | /calendar | Calendario de eventos (mes + lista) con **adjuntos** (Storage `events/{id}/`; imágenes en lightbox, PDF en pestaña nueva). Admin crea para todo/plantel/grupo; profesor para su grupo. Audiencias con restricción de visibilidad |
+| Calendar | /calendar | Calendario de eventos (mes + lista) con **adjuntos** (Storage `events/{id}/`; imágenes en lightbox, PDF en pestaña nueva). **Próximos a vencer** (cuenta regresiva), navegación con selectores mes/año + botón Hoy, **historial** de eventos pasados. Admin crea para todo/plantel/grupo; profesor para su grupo. Audiencias con restricción de visibilidad |
 | Deliveries | /entregas | **Cola de entrega**: padre escanea su QR de recogida (RC-/pase temporal) → hijos entran a "pendientes por entregar" → botón "Llamar" (notifica al tutor, mandar a llamar al plantel) → "Entregado" registra la salida en attendance. Tiempo real, filtro por plantel. También se alimenta desde el Kiosko |
 | Schedules | /schedules | **Horarios** por grupo (grid Lun–Vie): admin edita bloques (hora/materia/profesor); profesor y padre consultan los suyos |
 | Workshops | /workshops | **Talleres**: admin publica (costo, cupo, horario, plantel); padre inscribe hijos → cargo pendiente; admin marca pagado (efectivo/transferencia). Arquitectura Mercado Pago lista en `utils/payments.js` (activar con VITE_PAYMENTS_ENABLED) |
@@ -85,9 +92,9 @@ Los roles se normalizan a minúsculas. Las rutas están gateadas por rol en `src
 
 | Colección | Contenido |
 |-----------|-----------|
-| `users` | role, plantel (kiosk), classIds[] (teacher), photo, fcmTokens[], pickupCode, `announcementsReadAt`, name/email/phone |
+| `users` | role, plantel (kiosk), classIds[] (teacher), **planteles[]** (teacher, multiplantel), **subjectIds[]/subjectNames[]** (teacher, materias que imparte), photo, fcmTokens[], pickupCode, `announcementsReadAt`, **`accessSuspended`/`accessSuspendedAt`** (suspensión de acceso por admin), adminPlantel/adminNivel (admin acotado), name/email/phone |
 | `users/{uid}/familyMembers` | familiares con foto + passCode (credencial QR) |
-| `students` | name, lastName, plantel, nivel, grado, grupo, classId, parentIds[], qrCode, photo |
+| `students` | name, lastName, **studentEmail** (correo institucional, obligatorio al registrar desde el portal del padre), plantel, nivel, grado, grupo, classId, parentIds[], qrCode, photo, suspended (adeudo) |
 | `attendance/{date}/records` | entryTime, exitTime, métodos, guardId, plantel, pickedUpBy* |
 | `classAttendance/{date}/records` | pase de lista por profesor (present/late/absent) |
 | `notifications` | por parentId (push individual) |
@@ -103,7 +110,7 @@ Los roles se normalizan a minúsculas. Las rutas están gateadas por rol en `src
 | `workshops` | talleres: name, description, cost, capacity, schedule, plantel ('' = todos) |
 | `workshopEnrollments` | inscripciones: workshopId, studentId, parentId, cost, paymentStatus pending/paid, paymentMethod |
 
-Reglas en `firestore.rules` con funciones por rol. **Regla clave:** ramas por rol primero, las que leen `resource.data` al final; NO usar `is list` sobre `resource.data` en colecciones que se consultan con `array-contains`.
+Reglas en `firestore.rules` con funciones por rol. **Regla clave:** ramas por rol primero, las que leen `resource.data` al final; NO usar `is list` sobre `resource.data` en colecciones que se consultan con `array-contains`. **`users` update:** al editar su propio perfil un usuario no puede cambiarse el `role` ni quitarse la suspensión (`accessSuspended` protegido con `get('accessSuspended', false)`); solo el admin la modifica.
 
 ### Firebase Storage (adjuntos de avisos)
 - Reglas en `storage.rules` (desplegadas 2026-06-29). Ruta `announcements/{announcementId}/...`: lectura/escritura/borrado para **autenticados** (escritura con límite 20 MB). **NO usa `firestore.get` para verificar rol** — esa lectura cross-service daba `storage/unauthorized` intermitente; la protección real está en la app (solo admin/profesor ven el formulario) y en `firestore.rules` (solo admin/profesor crean el doc del aviso).
@@ -185,6 +192,34 @@ Se pasó de **35 errores → 0 errores** (`npm run lint` ahora limpio; build OK)
 ---
 
 ## 13. Historial de cambios de este documento
+
+- **2026-07-06 (UX en creación de talleres). SIN DEPLOY:** Se mejoró significativamente la interfaz de usuario para la creación de talleres en `Workshops.jsx` con el objetivo de reducir errores de llenado. El formulario ahora está dividido visualmente en tres secciones ("Información General", "Costo y Cupo", "Horario"). Se cambiaron los selects por chips para elegir el plantel de manera más rápida, se añadieron íconos empotrados en los inputs de moneda y cupo, y el campo de horario ahora cuenta con botones de autocompletado para insertar rangos de días y horas estandarizados con un solo clic.
+
+- **2026-07-04 (cont. 6 — portadas de avisos estéticas). DESPLEGADO:** las portadas de Avisos ya no quedan de alturas dispares ni se recortan feo. Nuevo marco **16:9 uniforme** (`.aviso-cover`): la imagen se muestra completa (`object-fit: contain`) sobre una copia **desenfocada** de sí misma que rellena los lados (estilo streaming), así cualquier proporción (horizontal/vertical/cuadrada) se ve pareja y elegante. `AnnouncementCard.jsx` usa el marco + título con tipografía display. `Announcements.jsx`: vista previa de portada con el mismo marco (estado `coverPreview` con object URL manejado por efecto), texto de ayuda y botón "Cambiar imagen". CSS `.aviso-cover*`. Verificado sembrando avisos con portadas horizontal/vertical/cuadrada (picsum) y borrándolos.
+
+- **2026-07-04 (cont. 5 — módulo Asignar materias y planteles). DESPLEGADO:** nueva página **`TeacherAssign.jsx`** (`/teacher-assign`, roles superadmin/admin, link "Asignar materias y planteles" en grupo Gestión del Navbar). Módulo dinámico para asignar a cada profesor: **planteles** (multiplantel, chips; si no tiene, se infieren de sus classIds), **grupos** (picker que se desbloquea SOLO para los planteles elegidos: plantel→nivel→grado con botones A/B, "A y B" por grado, "Todo el nivel"; quitar un plantel descarta sus grupos), y **materias** (chips del catálogo `subjects`). Guarda en el user doc: `planteles[]`, `classIds[]`, `subjectIds[]`, `subjectNames[]` (denormalizado). Barra de guardado fija con estado dirty/Descartar. Deep-link desde Users.jsx (botón dorado "Asignar" en filas/tarjetas de profesores → `/teacher-assign?uid=`). **TeacherDashboard**: la captura de calificaciones ahora se limita a las materias asignadas (`subjectIds`) si las hay; si no, muestra todas. No requirió cambios de reglas (admin ya podía escribir esos campos). CSS nuevo `.assign-*`, `.pick`. E2E verificado: guardó Tlalpan+Coyoacán + 6 grupos + materias, persistió tras recargar, y se restauró el profesor de prueba (ABRAHAM DURON LOYA).
+
+- **2026-07-04 (cont. 4 — mejoras al Calendario). DESPLEGADO:** (1) sección **"Próximos a vencer"** (tarjeta con filo dorado arriba del calendario): eventos dentro de los próximos 7 días con chip de cuenta regresiva (Hoy/Mañana/En N días, color por urgencia). (2) **Mejor navegación**: selectores desplegables de mes y año + botón "Hoy" (además de las flechas). (3) **Historial de eventos**: la lista lateral ahora tiene toggle segmentado "Próximos / Historial" (pasados del más reciente al más antiguo, hasta 50). Helpers nuevos en `utils/events.js`: `daysUntil`, `relativeDayLabel`. CSS nuevo: `.cal-toolbar`, `.cal-nav-selects`, `.due-chip`, `.cal-due-*`. Verificado con playwright sembrando 8 eventos demo (pasados/hoy/futuros) y borrándolos después.
+
+- **2026-07-04 (cont. 3 — auto-registro de padres reactivado). DESPLEGADO:** el Login vuelve a tener control segmentado "Iniciar sesión / Crear cuenta". El registro crea SOLO cuentas con rol `parent` (nombre, correo, contraseña ≥6 con confirmación), usando el `register` del AuthContext; las reglas de Firestore ya permitían el self-create para role=="parent". Errores de Firebase traducidos a español. E2E verificado (playwright registró un padre real → cayó en /parent con su menú) y la cuenta de prueba se eliminó después (Firestore + Auth). NOTA: esto revierte la decisión "solo login" del 2026-06-29; el personal (teacher/admin/guard/kiosk) sigue creándose desde el panel de administración.
+
+- **2026-07-04 (cont. 2 — acciones descriptivas en Gestión de Alumnos). DESPLEGADO:** los 5 botones de acción por alumno (antes solo ícono + tooltip) ahora muestran etiqueta visible: "Editar", "Cambiar grupo", "Suspender/Reactivar", "Imprimir QR" y "Eliminar", con tooltips más explicativos. Funciona en tabla (escritorio) y en tarjetas (móvil).
+
+- **2026-07-04 (cont. — portal padres + correo institucional + suspensión de acceso). DESPLEGADO (rules+hosting):**
+  - **Tarjeta del alumno rediseñada** en el portal del padre: encabezado institucional vino con avatar dorado, chips de grado/plantel/correo institucional, franja de estado con ícono (School/Home/Clock). Selector de hijos con chips `.pp-chip`. Aviso si el alumno está suspendido.
+  - **Correo institucional del alumno obligatorio** al registrarlo (campo `studentEmail` en `students`, se guarda en minúsculas). Alumnos previos no lo tienen (se muestra "sin correo institucional").
+  - **Admin → Usuarios → Padres**: cada padre muestra sus **hijos registrados** (nombre + correo institucional) en vista lista y tarjetas (mapa `parentIds` → hijos con carga completa de `students`).
+  - **Suspensión de acceso a la plataforma** (p. ej. adeudo): switch por padre (`users.accessSuspended` + `accessSuspendedAt`). `AuthContext` ahora escucha el perfil con **onSnapshot** y `App.jsx` bloquea con pantalla "Acceso suspendido" **en tiempo real** (sin recargar). `firestore.rules`: el usuario NO puede quitarse la suspensión al editar su propio perfil (guard con `get('accessSuspended', false)`). CSS nuevo: `.switch`, `.pp-chip`, `.pp-hero-*`.
+  - E2E verificado (playwright + Chrome): suspender desde /users bloquea al padre logueado al instante; reactivar lo desbloquea. Cuenta de prueba: prueba@prueba.com / 123456.
+  - Deploy: `firebase deploy --only firestore:rules,hosting` (este deploy también publicó el rediseño radical del shell). **Sigue SIN commit.**
+
+- **2026-07-04 (rediseño radical de interfaz — app shell nuevo, paleta intacta):**
+  - **Nuevo app shell** (`Navbar.jsx` reescrito por completo, data-driven por rol): **sidebar fijo** en escritorio (≥1024px) con grupos Operación/Gestión/Académico/Comunicación, indicador dorado en link activo y pie con usuario+campana+salir; **topbar glass + drawer lateral** en tablet/móvil; **bottom-nav estilo app nativa** en móvil (<768px) con los 4 links de mayor prioridad por rol + botón "Más" (abre el drawer). Badge de mensajes sin leer en los tres. El desplazamiento del contenido lo hace CSS vía `body.with-shell` (clase que Navbar pone/quita en un effect).
+  - **Convivencia con barras existentes**: en `/parent` la barra propia del portal (`.pp-bottomnav`) oculta la global (`#root:has(.pp-bottomnav) .shell-bottomnav`); en el chat con conversación abierta (`.msg-pane.show-chat`) la bottom-nav se oculta y el panel recupera la altura. Alturas del chat recalibradas (topbar+bottom-nav).
+  - **Sistema de diseño renovado** (index.css): tipografía display **Sora** (títulos, stats, marca; Inter sigue en cuerpo), botones **pill** (radius 999), inputs "rellenos" beige que se vuelven blancos al enfocar, tarjetas radius 22 con borde dorado al hover, thead con filo dorado, **modales = bottom-sheet con asa en móvil** (slide-up, safe-area), toasts abajo en móvil (no chocan con la nav), drawer con links tipo tarjeta. Radios Tailwind 12/16/22/28 y fontFamily.display en tailwind.config.
+  - **Login rediseñado** (pantalla dividida): panel de marca vino con logo, nombre del colegio, features y aros dorados decorativos + panel de formulario; en móvil se apila como hero. Breakpoint 768.
+  - **NotificationBell**: prop `up` para abrir el panel hacia arriba (pie del sidebar).
+  - Verificado con screenshots (Chrome headless + playwright-core, login como ricfirebase): escritorio 1440 (sidebar, Dashboard/Students), tablet 834 (drawer), móvil 390 (bottom-nav, drawer, Mensajes, portal padre sin doble barra). Build OK, lint 0 errores / 29 warnings (patrón preexistente). **SIN commit y SIN deploy** (pendiente: `firebase deploy --only hosting`).
 
 - **2026-07-03 (sesión grande — 14 funcionalidades + rediseño visual):**
   - **Cola de entrega** (`/entregas` + `utils/pickupQueue.js` + colección `pickupQueue`): padre escanea su QR al llegar → hijos en lista de pendientes → llamar al plantel (notifica) → "Entregado" registra la salida. El Kiosko también encola códigos RC-/PASS-.

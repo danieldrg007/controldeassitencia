@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { db, secondaryAuth, auth } from '../firebase';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
-import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check, FileSpreadsheet, List, LayoutGrid, AlertTriangle } from 'lucide-react';
+import { UserPlus, Search, Copy, Trash2, X, Edit, Key, Mail, MapPin, ClipboardCheck, Link2, Check, FileSpreadsheet, List, LayoutGrid, AlertTriangle, GraduationCap, ShieldOff, SlidersHorizontal } from 'lucide-react';
 import { ROLE_LABELS, NOMBRE_PLANTELES, nivelesDePlantel, gradosDeNivel, GRUPOS, makeClassId } from '../config/colegio';
 import Avatar from '../components/Avatar';
 
@@ -66,6 +66,8 @@ export default function Users() {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
+  const [students, setStudents] = useState([]);
+
   const loadUsers = async () => {
     const snap = await getDocs(collection(db, 'users'));
     const list = [];
@@ -74,7 +76,37 @@ export default function Users() {
     setUsers(list);
   };
 
-  useEffect(() => { loadUsers(); }, []);
+  // Alumnos: para mostrar qué hijos tiene cada padre (y con qué correo los registró).
+  const loadStudents = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'students'));
+      const list = [];
+      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+      setStudents(list);
+    } catch (e) { console.error('Error cargando alumnos', e); }
+  };
+
+  useEffect(() => { loadUsers(); loadStudents(); }, []);
+
+  // Mapa padre → hijos registrados.
+  const childrenByParent = useMemo(() => {
+    const map = {};
+    students.forEach(s => (s.parentIds || []).forEach(pid => { (map[pid] = map[pid] || []).push(s); }));
+    return map;
+  }, [students]);
+
+  // Suspender / reactivar el acceso a la plataforma (p. ej. por adeudo).
+  const toggleAccess = async (u) => {
+    const suspend = !u.accessSuspended;
+    if (suspend && !window.confirm(`⚠️ ¿Suspender el acceso de ${u.displayName || u.email}?\n\nNo podrá usar la plataforma (ver asistencia, avisos, chat, etc.) hasta que lo reactives con este mismo switch.`)) return;
+    try {
+      await updateDoc(doc(db, 'users', u.id), {
+        accessSuspended: suspend,
+        accessSuspendedAt: suspend ? new Date().toISOString() : null,
+      });
+      loadUsers();
+    } catch (e) { alert('Error: ' + e.message); }
+  };
 
   // Contraseña inicial por defecto; el usuario la cambia luego en su perfil.
   const DEFAULT_PASSWORD = '123456';
@@ -241,9 +273,50 @@ export default function Users() {
     </>
   );
 
+  // Hijos registrados por un padre (nombre + correo institucional con el que lo registró).
+  const parentChildren = (u) => {
+    if (u.role !== 'parent') return null;
+    const kids = childrenByParent[u.id] || [];
+    if (!kids.length) return <div style={{fontSize:'0.78rem', color:'var(--gris-400)', fontStyle:'italic', marginTop:4}}>Sin hijos registrados</div>;
+    return (
+      <div style={{display:'flex', flexDirection:'column', gap:4, marginTop:6}}>
+        {kids.map(k => (
+          <div key={k.id} style={{fontSize:'0.8rem', color:'var(--gris-600)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap'}}>
+            <GraduationCap size={13} style={{color:'var(--guinda)', flexShrink:0}}/>
+            <strong style={{color:'var(--text-main)'}}>{k.name} {k.lastName}</strong>
+            <span style={{color:'var(--gris-500)', wordBreak:'break-all'}}>· {k.studentEmail || 'sin correo institucional'}</span>
+            {k.suspended && <span className="badge badge-danger" style={{fontSize:'0.62rem'}}>Alumno suspendido</span>}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Switch de acceso a la plataforma (solo padres): apagarlo suspende su cuenta.
+  const accessSwitch = (u, withLabel = false) => {
+    if (u.role !== 'parent') return null;
+    const active = !u.accessSuspended;
+    return (
+      <span style={{display:'inline-flex', alignItems:'center', gap:8, flexShrink:0}}
+        title={active ? 'Acceso activo — clic para suspender (p. ej. por adeudo)' : 'Acceso suspendido — clic para reactivar'}>
+        {withLabel && (
+          <span style={{fontSize:'0.78rem', fontWeight:700, color: active ? 'var(--success)' : 'var(--danger)'}}>
+            {active ? 'Acceso activo' : 'Suspendido'}
+          </span>
+        )}
+        <button type="button" className={`switch ${active ? 'on' : ''}`} onClick={() => toggleAccess(u)} aria-label="Acceso a la plataforma" />
+      </span>
+    );
+  };
+
   // Botones de acción de cada usuario (reutilizados en lista y tarjetas).
   const userActions = (u) => (
     <>
+      {u.role === 'teacher' && (
+        <button onClick={() => navigate(`/teacher-assign?uid=${u.id}`)} className="btn btn-sm btn-gold" title="Asignar planteles, grupos y materias">
+          <SlidersHorizontal size={14} />
+        </button>
+      )}
       <button onClick={() => copyAccessLink(u)} className="btn btn-sm btn-secondary" title={u.password ? 'Copiar acceso directo (correo + contraseña)' : 'Copiar enlace de acceso'}>
         {copiedId === u.id ? <Check size={14} /> : <Link2 size={14} />}
       </button>
@@ -312,13 +385,16 @@ export default function Users() {
       ) : viewMode === 'list' ? (
         <div className="card" style={{padding:0, overflow:'hidden'}}>
           {filtered.map(u => (
-            <div key={u.id} className="user-row">
+            <div key={u.id} className="user-row" style={u.accessSuspended ? {background:'var(--danger-bg)'} : undefined}>
               <Avatar src={u.photo} name={u.displayName} size={38} />
               <div className="user-row-info">
                 <div className="user-row-name">{u.displayName || 'Sin nombre'}</div>
                 <div className="user-row-email">{u.email || '—'}</div>
+                {u.role === 'parent' && parentChildren(u)}
               </div>
+              {u.accessSuspended && <span className="badge badge-danger"><ShieldOff size={11}/> Suspendido</span>}
               <span className={`badge ${ROLE_BADGE[u.role] || 'badge-info'}`}>{ROLE_LABELS[u.role] || u.role}</span>
+              {accessSwitch(u)}
               {u.role === 'teacher' && (
                 <span className="user-row-meta" style={u.classIds?.length ? undefined : {color:'var(--danger)', fontWeight:600}}>
                   <ClipboardCheck size={12}/> {u.classIds?.length || 0} grupo(s)
@@ -338,13 +414,28 @@ export default function Users() {
                 <Avatar src={u.photo} name={u.displayName} size={48} />
                 <div style={{flex:1, minWidth:0}}>
                   <div style={{fontWeight:700, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{u.displayName || 'Sin nombre'}</div>
-                  <span className={`badge ${ROLE_BADGE[u.role] || 'badge-info'}`} style={{marginTop:2}}>{ROLE_LABELS[u.role] || u.role}</span>
+                  <div style={{display:'flex', gap:4, flexWrap:'wrap', marginTop:2}}>
+                    <span className={`badge ${ROLE_BADGE[u.role] || 'badge-info'}`}>{ROLE_LABELS[u.role] || u.role}</span>
+                    {u.accessSuspended && <span className="badge badge-danger"><ShieldOff size={11}/> Suspendido</span>}
+                  </div>
                 </div>
               </div>
 
               <div style={{fontSize:'0.82rem', color:'var(--gris-600)', display:'flex', alignItems:'center', gap:6, wordBreak:'break-all'}}>
                 <Mail size={13} style={{flexShrink:0}}/> {u.email || '—'}
               </div>
+              {u.role === 'parent' && (
+                <div style={{padding:'8px 10px', borderRadius:'var(--radius-sm)', background:'var(--surface-hover)'}}>
+                  <div style={{fontSize:'0.7rem', fontWeight:800, textTransform:'uppercase', letterSpacing:'0.05em', color:'var(--gris-500)'}}>Hijos registrados</div>
+                  {parentChildren(u)}
+                </div>
+              )}
+              {u.role === 'parent' && (
+                <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', gap:8}}>
+                  <span style={{fontSize:'0.8rem', fontWeight:600, color:'var(--gris-600)'}}>Acceso a la plataforma</span>
+                  {accessSwitch(u, true)}
+                </div>
+              )}
               {u.role === 'teacher' && (
                 <div style={{fontSize:'0.82rem', color:'var(--gris-500)', display:'flex', alignItems:'center', gap:6}}>
                   <ClipboardCheck size={13}/> {u.classIds?.length || 0} grupo(s) asignado(s)
@@ -357,6 +448,11 @@ export default function Users() {
               )}
 
               <div style={{marginTop:'auto', paddingTop:4, display:'flex', flexDirection:'column', gap:8}}>
+                {u.role === 'teacher' && (
+                  <button onClick={() => navigate(`/teacher-assign?uid=${u.id}`)} className="btn btn-sm btn-gold w-full" style={{justifyContent:'center'}}>
+                    <SlidersHorizontal size={14}/> Asignar materias y planteles
+                  </button>
+                )}
                 <button onClick={() => copyAccessLink(u)} className="btn btn-sm btn-secondary w-full" style={{justifyContent:'center'}} title={u.password ? 'Copia el enlace con correo y contraseña precargados (acceso directo)' : 'Copia el enlace con el correo precargado (este usuario no tiene contraseña guardada)'}>
                   {copiedId === u.id ? <><Check size={14}/> ¡Enlace copiado!</> : <><Link2 size={14}/> {u.password ? 'Copiar acceso directo' : 'Copiar enlace de acceso'}</>}
                 </button>

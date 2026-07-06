@@ -4,7 +4,7 @@ import { collection, query, where, getDocs, onSnapshot, addDoc, updateDoc, delet
 import { updateEmail, updatePassword, updateProfile, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import { QRCodeSVG } from 'qrcode.react';
-import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock, Camera, Pencil, RefreshCw, StickyNote, GraduationCap, ShieldAlert } from 'lucide-react';
+import { LogIn, LogOut, Bell, BellRing, Download, UserCircle, Plus, X, Save, Users2, Megaphone, Trash2, IdCard, Car, KeyRound, Copy, Clock, Camera, Pencil, RefreshCw, StickyNote, GraduationCap, ShieldAlert, School, Home, Mail, MapPin } from 'lucide-react';
 import AnnouncementCard from '../components/AnnouncementCard';
 import { sortAnnouncements } from '../config/avisos';
 import {
@@ -27,7 +27,7 @@ const NOTE_CATS = {
   tarea:     { label: 'Tarea',     badge: 'badge-danger' },
   positiva:  { label: 'Positiva',  badge: 'badge-success' },
 };
-const emptyStudent = { name: '', lastName: '', plantel: '', nivel: '', grado: '', grupo: '' };
+const emptyStudent = { name: '', lastName: '', studentEmail: '', plantel: '', nivel: '', grado: '', grupo: '' };
 const emptyMember = { name: '', relation: 'Madre', phone: '', photo: '' };
 
 export default function ParentDashboard() {
@@ -284,6 +284,7 @@ export default function ParentDashboard() {
       const { plantel, nivel, grado, grupo } = studentForm;
       await addDoc(collection(db, 'students'), {
         ...studentForm,
+        studentEmail: studentForm.studentEmail.trim().toLowerCase(),
         classId: makeClassId({ plantel, nivel, grado, grupo }),
         parentIds: [user.uid],
         qrCode: generateQR(),
@@ -402,9 +403,9 @@ export default function ParentDashboard() {
   // Estado visual de la tarjeta "hero" del alumno según su asistencia de hoy.
   const heroState = !record ? 'none' : (record.exitTime ? 'out' : 'in');
   const HERO = {
-    in:   { grad: 'linear-gradient(135deg,#16A34A,#15803D)', emoji: '🏫', text: 'En el colegio' },
-    out:  { grad: 'linear-gradient(135deg,#2563EB,#1D4ED8)', emoji: '🏠', text: 'Ya salió del colegio' },
-    none: { grad: 'linear-gradient(135deg,#B9A6AB,#8C6A70)', emoji: '🕗', text: 'Sin registro de entrada hoy' },
+    in:   { grad: 'linear-gradient(135deg,#16A34A,#15803D)', Icon: School, text: 'En el colegio' },
+    out:  { grad: 'linear-gradient(135deg,#2563EB,#1D4ED8)', Icon: Home, text: 'Ya salió del colegio' },
+    none: { grad: 'linear-gradient(135deg,#B9A6AB,#8C6A70)', Icon: Clock, text: 'Sin registro de entrada hoy' },
   }[heroState];
 
   const tabs = [
@@ -456,10 +457,11 @@ export default function ParentDashboard() {
             </div>
           )}
           <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
-            <div className="flex gap-2 overflow-x-auto" style={{maxWidth:'100%', paddingBottom:4}}>
+            <div className="flex gap-2 overflow-x-auto items-center" style={{maxWidth:'100%', paddingBottom:4}}>
               {students.map(s => (
                 <button key={s.id} onClick={() => setSelectedStudent(s)}
-                  className={`btn ${selectedStudent?.id === s.id ? 'btn-primary' : 'btn-secondary'}`} style={{whiteSpace:'nowrap'}}>
+                  className={`pp-chip ${selectedStudent?.id === s.id ? 'active' : ''}`}>
+                  <span className="pp-chip-avatar">{(s.name || '?')[0].toUpperCase()}</span>
                   {s.name}
                 </button>
               ))}
@@ -478,16 +480,31 @@ export default function ParentDashboard() {
           ) : selectedStudent && (
             <>
             <div className="pp-grid">
-              {/* Tarjeta hero del alumno */}
+              {/* Tarjeta hero del alumno: credencial institucional + estado del día */}
               <div className="card" style={{padding:0, overflow:'hidden'}}>
-                <div style={{background: HERO.grad, color:'#fff', padding:'28px 20px', textAlign:'center'}}>
-                  <div style={{fontSize:'3rem', lineHeight:1}}>{HERO.emoji}</div>
-                  <div style={{fontWeight:800, fontSize:'1.05rem', marginTop:8, letterSpacing:0.2}}>{HERO.text}</div>
+                <div className="pp-hero-top">
+                  <span style={{width:60, height:60, borderRadius:20, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background:'linear-gradient(135deg, var(--dorado-light), var(--dorado))', color:'var(--guinda-dark)', fontWeight:800, fontSize:'1.4rem', fontFamily:'var(--font-display)', boxShadow:'0 4px 12px rgba(0,0,0,0.25)'}}>
+                    {(selectedStudent.name || '?').trim().charAt(0).toUpperCase()}
+                  </span>
+                  <div style={{minWidth:0, flex:1}}>
+                    <h2>{selectedStudent.name} {selectedStudent.lastName}</h2>
+                    <div className="pp-hero-chips">
+                      <span className="pp-hero-chip"><GraduationCap/> <span>{selectedStudent.grado} {selectedStudent.nivel} {selectedStudent.grupo}</span></span>
+                      {selectedStudent.plantel && <span className="pp-hero-chip"><MapPin/> <span>{selectedStudent.plantel}</span></span>}
+                      {selectedStudent.studentEmail && <span className="pp-hero-chip"><Mail/> <span>{selectedStudent.studentEmail}</span></span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="pp-hero-status" style={{background: HERO.grad}}>
+                  <HERO.Icon /> {HERO.text}
                 </div>
                 <div style={{padding:'20px', textAlign:'center'}}>
-                  <h2 style={{fontSize:'1.4rem', fontWeight:800}}>{selectedStudent.name} {selectedStudent.lastName}</h2>
-                  <p style={{color:'var(--gris-500)', marginTop:2}}>{selectedStudent.grado} {selectedStudent.nivel} {selectedStudent.grupo}</p>
-
+                  {selectedStudent.suspended && (
+                    <div className="notice notice-danger mb-4" style={{textAlign:'left'}}>
+                      <ShieldAlert size={18} style={{flexShrink:0, marginTop:2}}/>
+                      <p style={{fontSize:'0.82rem', lineHeight:1.5}}>El acceso del alumno está suspendido. Acude a la administración del colegio.</p>
+                    </div>
+                  )}
                   {record ? (
                     <>
                       <div className="grid-2 mt-4" style={{textAlign:'left'}}>
@@ -786,6 +803,11 @@ export default function ParentDashboard() {
                   <label className="form-label">Apellidos</label>
                   <input className="form-input" value={studentForm.lastName} onChange={e => setStudentForm({...studentForm, lastName: e.target.value})} required />
                 </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Correo institucional del alumno</label>
+                <input type="email" className="form-input" placeholder="alumno@oliverio.edu.mx" value={studentForm.studentEmail} onChange={e => setStudentForm({...studentForm, studentEmail: e.target.value})} required />
+                <p style={{fontSize:'0.75rem', color:'var(--gris-500)', marginTop:4}}>Es el correo que el colegio asignó a tu hijo. Es obligatorio para validar su registro.</p>
               </div>
               <div className="form-grid-auto">
                 <div className="form-group">

@@ -64,6 +64,27 @@ export const fmtEventDate = (dateStr, withYear = false) => {
   });
 };
 
+// Días entre hoy y una fecha 'YYYY-MM-DD' (0 = hoy, 1 = mañana, negativo = pasado).
+export function daysUntil(dateStr) {
+  if (!dateStr) return NaN;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const target = new Date(y, m - 1, d);
+  const now = new Date();
+  const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - todayMid) / 86400000);
+}
+
+// Etiqueta relativa: "Hoy", "Mañana", "En 3 días", "Ayer", "Hace 5 días".
+export function relativeDayLabel(dateStr) {
+  const n = daysUntil(dateStr);
+  if (Number.isNaN(n)) return '';
+  if (n === 0) return 'Hoy';
+  if (n === 1) return 'Mañana';
+  if (n === -1) return 'Ayer';
+  if (n > 1) return `En ${n} días`;
+  return `Hace ${Math.abs(n)} días`;
+}
+
 export function getGoogleCalendarUrl(ev) {
   if (!ev || !ev.date) return '';
 

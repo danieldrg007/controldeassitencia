@@ -33,15 +33,16 @@ export default function AnnouncementCard({ a, onDelete, onEdit, onImageClick, un
       }}
     >
       {a.coverUrl && (
-        <img
-          src={a.coverUrl}
-          alt=""
+        <div
+          className={`aviso-cover ${onImageClick ? 'zoom' : ''}`}
           onClick={() => onImageClick?.(a.coverUrl)}
-          style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block', cursor: onImageClick ? 'zoom-in' : 'default' }}
-        />
+        >
+          <div className="aviso-cover-bg" style={{ backgroundImage: `url("${a.coverUrl}")` }} />
+          <img src={a.coverUrl} alt="" className="aviso-cover-img" loading="lazy" />
+        </div>
       )}
-      <div style={{ padding: 16 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+      <div style={{ padding: 18 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 10 }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', fontWeight: 700, padding: '3px 9px', borderRadius: 999, color: cat.color, background: `${cat.color}1A` }}>
             <CatIcon size={13} /> {cat.label}
           </span>
@@ -56,8 +57,8 @@ export default function AnnouncementCard({ a, onDelete, onEdit, onImageClick, un
           <span className="badge badge-info" style={{ marginLeft: 'auto' }}>{scopeText(a)}</span>
         </div>
 
-        <h3 style={{ fontWeight: 800, fontSize: '1.05rem', marginBottom: 6, color: 'var(--text-main, var(--guinda))' }}>{a.title}</h3>
-        <p style={{ fontSize: '0.92rem', color: 'var(--gris-700)', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{a.body}</p>
+        <h3 style={{ fontWeight: 800, fontSize: '1.15rem', marginBottom: 6, color: 'var(--text-main, var(--guinda))', fontFamily: 'var(--font-display, inherit)', letterSpacing: '-0.02em', lineHeight: 1.25 }}>{a.title}</h3>
+        <p style={{ fontSize: '0.92rem', color: 'var(--gris-700)', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>{a.body}</p>
 
         {atts.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>

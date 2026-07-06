@@ -311,7 +311,8 @@ export default function TeacherDashboard() {
   const [gradesSaving, setGradesSaving] = useState(false);
   const [gradesMsg, setGradesMsg] = useState('');
 
-  // Catálogo de materias.
+  // Catálogo de materias. Si el profesor tiene materias asignadas (subjectIds),
+  // se limita a esas; si no, se muestran todas (comportamiento anterior).
   useEffect(() => {
     (async () => {
       try {
@@ -319,10 +320,11 @@ export default function TeacherDashboard() {
         const arr = [];
         snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
         arr.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        setSubjects(arr);
+        const assigned = Array.isArray(userData?.subjectIds) ? userData.subjectIds : [];
+        setSubjects(assigned.length ? arr.filter(s => assigned.includes(s.id)) : arr);
       } catch (e) { console.error('Error materias', e); }
     })();
-  }, []);
+  }, [userData]);
 
   // Prefill de calificaciones existentes para (grupo, materia, periodo).
   useEffect(() => {

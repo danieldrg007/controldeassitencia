@@ -249,36 +249,66 @@ export default function Workshops() {
               <button className="modal-close" onClick={() => !saving && setShowForm(false)}><X size={16} /></button>
             </div>
             <form onSubmit={submitWorkshop}>
-              <div className="form-group">
-                <label className="form-label">Nombre</label>
-                <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required placeholder="Ej. Fútbol, Robótica, Ballet" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Descripción</label>
-                <textarea className="form-input" rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-              </div>
-              <div className="grid-2">
+              {/* Sección 1: General */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--brand)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>1. Información General</div>
                 <div className="form-group">
-                  <label className="form-label">Costo (MXN)</label>
-                  <input type="number" min="0" step="0.01" className="form-input" value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} required />
+                  <label className="form-label">Nombre del taller</label>
+                  <input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required placeholder="Ej. Fútbol, Robótica, Ballet" />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Cupo (0 = sin límite)</label>
-                  <input type="number" min="0" className="form-input" value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} />
+                  <label className="form-label">Descripción corta</label>
+                  <textarea className="form-input" rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Breve descripción de las actividades o material necesario..." />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Plantel</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => setForm({ ...form, plantel: '' })} className={`btn btn-sm ${form.plantel === '' ? 'btn-primary' : 'btn-secondary'}`}>Todos</button>
+                    {NOMBRE_PLANTELES.map(p => (
+                      <button key={p} type="button" onClick={() => setForm({ ...form, plantel: p })} className={`btn btn-sm ${form.plantel === p ? 'btn-primary' : 'btn-secondary'}`}>{p}</button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Horario (texto)</label>
-                <input className="form-input" value={form.schedule} onChange={e => setForm({ ...form, schedule: e.target.value })} placeholder="Ej. Martes y jueves 14:30–16:00" />
+
+              {/* Sección 2: Detalles */}
+              <div style={{ marginBottom: 16, paddingTop: 16, borderTop: '1px solid var(--surface-border)' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--brand)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>2. Costo y Cupo</div>
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Costo (MXN)</label>
+                    <div style={{ position: 'relative' }}>
+                      <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--gris-500)' }}>$</span>
+                      <input type="number" min="0" step="0.01" className="form-input" style={{ paddingLeft: 28 }} value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} required />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Cupo máximo</label>
+                    <div style={{ position: 'relative' }}>
+                      <input type="number" min="0" className="form-input" value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="0" />
+                      <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--gris-500)', fontSize: '0.8rem', pointerEvents: 'none' }}>
+                        {Number(form.capacity) > 0 ? 'alumnos' : 'Ilimitado'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Plantel</label>
-                <select className="form-select" value={form.plantel} onChange={e => setForm({ ...form, plantel: e.target.value })}>
-                  <option value="">Todos los planteles</option>
-                  {NOMBRE_PLANTELES.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+
+              {/* Sección 3: Horario */}
+              <div style={{ marginBottom: 20, paddingTop: 16, borderTop: '1px solid var(--surface-border)' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--brand)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>3. Horario</div>
+                <div className="form-group">
+                  <label className="form-label">Días y horas</label>
+                  <input className="form-input" value={form.schedule} onChange={e => setForm({ ...form, schedule: e.target.value })} required placeholder="Ej. Lunes y miércoles de 14:30 a 16:00" />
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    {['Lunes y miércoles 14:30 - 16:00', 'Martes y jueves 14:30 - 16:00', 'Viernes 14:00 - 16:00'].map(s => (
+                      <button key={s} type="button" onClick={() => setForm({ ...form, schedule: s })} className="btn btn-sm btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 8px' }}>+ {s}</button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="modal-footer">
+
+              <div className="modal-footer" style={{ paddingTop: 16, borderTop: '1px solid var(--surface-border)' }}>
                 <button type="button" onClick={() => setShowForm(false)} className="btn btn-secondary" disabled={saving}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : (editing ? 'Guardar cambios' : 'Publicar taller')}</button>
               </div>

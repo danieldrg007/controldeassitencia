@@ -32,8 +32,9 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+        display: ['Sora', 'Inter', '-apple-system', 'sans-serif'],
       },
-      borderRadius: { sm: '10px', md: '14px', lg: '18px', xl: '26px' },
+      borderRadius: { sm: '12px', md: '16px', lg: '22px', xl: '28px' },
       boxShadow: {
         sm: '0 1px 2px rgba(135,36,52,0.05)',
         md: '0 2px 4px rgba(135,36,52,0.05), 0 6px 16px -4px rgba(135,36,52,0.10)',

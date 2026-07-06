@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 const AuthContext = createContext();
 // eslint-disable-next-line react-refresh/only-export-components -- el hook vive junto al provider a propósito; solo afecta el Fast Refresh en desarrollo.
@@ -13,20 +13,24 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    // El perfil se escucha en tiempo real: si la administración suspende el
+    // acceso (o cambia el rol), la app reacciona sin necesidad de recargar.
+    let unsubDoc = null;
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      if (unsubDoc) { unsubDoc(); unsubDoc = null; }
       if (firebaseUser) {
         setUser(firebaseUser);
-        try {
-          const snap = await getDoc(doc(db, 'users', firebaseUser.uid));
+        unsubDoc = onSnapshot(doc(db, 'users', firebaseUser.uid), (snap) => {
           if (snap.exists()) setUserData(snap.data());
-        } catch (e) { console.error(e); }
+          setLoading(false);
+        }, (e) => { console.error(e); setLoading(false); });
       } else {
         setUser(null);
         setUserData(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return unsub;
+    return () => { if (unsubDoc) unsubDoc(); unsub(); };
   }, []);
 
   const login = (email, password) => signInWithEmailAndPassword(auth, email, password);

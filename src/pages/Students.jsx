@@ -320,13 +320,13 @@ export default function Students() {
                     </td>
                     <td data-label="">
                       <div className="flex gap-2" style={{flexWrap:'wrap'}}>
-                        <button onClick={() => handleEdit(s)} className="btn btn-sm btn-secondary" title="Editar alumno"><Edit size={14}/></button>
-                        <button onClick={() => openMove(s)} className="btn btn-sm btn-secondary" title="Cambiar de grupo"><ArrowRightLeft size={14}/></button>
-                        <button onClick={() => toggleSuspended(s)} className={`btn btn-sm ${s.suspended ? 'btn-success' : 'btn-gold'}`} title={s.suspended ? 'Reactivar (quitar suspensión)' : 'Suspender por adeudo'}>
-                          {s.suspended ? <CheckCircle2 size={14}/> : <Ban size={14}/>}
+                        <button onClick={() => handleEdit(s)} className="btn btn-sm btn-secondary" title="Editar los datos del alumno"><Edit size={14}/> Editar</button>
+                        <button onClick={() => openMove(s)} className="btn btn-sm btn-secondary" title="Cambiarlo a otro plantel/grado/grupo"><ArrowRightLeft size={14}/> Cambiar grupo</button>
+                        <button onClick={() => toggleSuspended(s)} className={`btn btn-sm ${s.suspended ? 'btn-success' : 'btn-gold'}`} title={s.suspended ? 'Quitar la suspensión: vuelve a poder entrar al colegio' : 'Suspender por adeudo: el escáner y el kiosko no le permitirán el acceso'}>
+                          {s.suspended ? <><CheckCircle2 size={14}/> Reactivar</> : <><Ban size={14}/> Suspender</>}
                         </button>
-                        <button onClick={() => printQR(s)} className="btn btn-sm btn-gold" title="Imprimir QR"><Download size={14}/></button>
-                        <button onClick={() => setDeleteStudent(s)} className="btn btn-sm btn-danger" title="Eliminar"><Trash2 size={14}/></button>
+                        <button onClick={() => printQR(s)} className="btn btn-sm btn-gold" title="Descargar/imprimir su credencial con código QR"><Download size={14}/> Imprimir QR</button>
+                        <button onClick={() => setDeleteStudent(s)} className="btn btn-sm btn-danger" title="Eliminar al alumno de forma permanente"><Trash2 size={14}/> Eliminar</button>
                       </div>
                     </td>
                   </tr>

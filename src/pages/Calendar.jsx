@@ -2,14 +2,20 @@ import { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { CalendarDays, Plus, X, ChevronLeft, ChevronRight, Clock, MapPin, Users as UsersIcon, Trash2, Pencil, CalendarPlus, Copy, Check, ExternalLink, Paperclip, FileText, Image as ImageIcon, Download } from 'lucide-react';
+import { CalendarDays, Plus, X, ChevronLeft, ChevronRight, Clock, MapPin, Users as UsersIcon, Trash2, Pencil, CalendarPlus, Copy, Check, ExternalLink, Paperclip, FileText, Image as ImageIcon, Download, AlarmClock, History, CalendarRange } from 'lucide-react';
 import { NOMBRE_PLANTELES, todasLasClases, classLabel, parseClassId } from '../config/colegio';
 import { CATEGORIAS, getCategoria } from '../config/avisos';
 import {
   AUDIENCES, AUDIENCE_ORDER, audienceLabels, canSeeEvent,
   MONTHS_ES, WEEKDAYS_ES, buildMonthMatrix, todayStr, fmtEventDate,
-  getGoogleCalendarUrl,
+  getGoogleCalendarUrl, daysUntil, relativeDayLabel,
 } from '../utils/events';
+
+// Ventana (en días) para considerar un evento "próximo a vencer".
+const DUE_SOON_DAYS = 7;
+
+// Clase del chip de cuenta regresiva según cuántos días faltan.
+const dueChipClass = (n) => n < 0 ? 'past' : n === 0 ? 'today' : n <= 3 ? 'soon' : 'later';
 import { uploadEventFile, deleteEventFiles } from '../utils/eventFiles';
 import { fileKind, humanSize } from '../utils/announcements';
 
@@ -93,17 +99,58 @@ export default function Calendar() {
     return map;
   }, [visibleEvents]);
 
+  // Pestaña de la lista lateral: próximos o historial.
+  const [listTab, setListTab] = useState('upcoming');
+
   const weeks = useMemo(() => buildMonthMatrix(cursor.y, cursor.m), [cursor]);
   const dayEvents = (eventsByDate[selectedDate] || []).slice().sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+
   const upcoming = useMemo(
-    () => visibleEvents.filter(e => e.date >= today).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''))).slice(0, 12),
+    () => visibleEvents.filter(e => e.date >= today).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''))).slice(0, 30),
     [visibleEvents, today],
   );
+
+  // Próximos a vencer: eventos de hoy hasta dentro de DUE_SOON_DAYS días.
+  const dueSoon = useMemo(
+    () => visibleEvents
+      .filter(e => { const n = daysUntil(e.date); return n >= 0 && n <= DUE_SOON_DAYS; })
+      .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || ''))),
+    [visibleEvents],
+  );
+
+  // Historial: eventos pasados, del más reciente al más antiguo.
+  const history = useMemo(
+    () => visibleEvents.filter(e => e.date < today).sort((a, b) => (b.date + (b.time || '')).localeCompare(a.date + (a.time || ''))).slice(0, 50),
+    [visibleEvents, today],
+  );
+
+  // Rango de años para el selector (según eventos + año actual, con margen).
+  const years = useMemo(() => {
+    const now = new Date().getFullYear();
+    const ys = visibleEvents.map(e => Number(e.date?.slice(0, 4))).filter(Boolean);
+    const min = Math.min(now - 1, ...ys);
+    const max = Math.max(now + 1, ...ys);
+    const out = [];
+    for (let y = min; y <= max; y++) out.push(y);
+    return out;
+  }, [visibleEvents]);
 
   const moveMonth = (delta) => setCursor(c => {
     const d = new Date(c.y, c.m + delta, 1);
     return { y: d.getFullYear(), m: d.getMonth() };
   });
+
+  const goToday = () => {
+    const d = new Date();
+    setCursor({ y: d.getFullYear(), m: d.getMonth() });
+    setSelectedDate(today);
+  };
+
+  // Salta al mes/día de un evento desde cualquier lista.
+  const jumpTo = (dateStr) => {
+    setSelectedDate(dateStr);
+    setCursor({ y: Number(dateStr.slice(0, 4)), m: Number(dateStr.slice(5, 7)) - 1 });
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -256,13 +303,50 @@ export default function Calendar() {
         </div>
       </div>
 
+      {/* Próximos a vencer: eventos dentro de los próximos 7 días */}
+      {dueSoon.length > 0 && (
+        <div className="card cal-due-card" style={{ marginBottom: 16 }}>
+          <h3 className="card-title" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlarmClock size={18} color="var(--accent-hover)" /> Próximos a vencer
+            <span className="badge badge-gold" style={{ marginLeft: 'auto' }}>{dueSoon.length}</span>
+          </h3>
+          <p style={{ fontSize: '0.8rem', color: 'var(--gris-500)', marginBottom: 6 }}>Eventos que ocurren en los próximos {DUE_SOON_DAYS} días.</p>
+          <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {dueSoon.map(ev => {
+              const n = daysUntil(ev.date);
+              const cat = getCategoria(ev.category);
+              return (
+                <button key={ev.id} onClick={() => jumpTo(ev.date)} className="cal-due-row">
+                  <span className={`due-chip ${dueChipClass(n)}`}><Clock size={11} /> {relativeDayLabel(ev.date)}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, fontSize: '0.9rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</span>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--gris-500)', textTransform: 'capitalize', flexShrink: 0 }}>
+                    {fmtEventDate(ev.date)}{ev.time ? ` · ${ev.time}` : ''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="cal-layout">
         {/* Calendario mensual */}
         <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <button onClick={() => moveMonth(-1)} className="btn btn-icon btn-secondary"><ChevronLeft size={18} /></button>
-            <strong style={{ fontSize: '1.05rem' }}>{MONTHS_ES[cursor.m]} {cursor.y}</strong>
-            <button onClick={() => moveMonth(1)} className="btn btn-icon btn-secondary"><ChevronRight size={18} /></button>
+          <div className="cal-toolbar">
+            <div className="cal-nav-selects">
+              <select value={cursor.m} onChange={e => setCursor(c => ({ ...c, m: Number(e.target.value) }))} aria-label="Mes">
+                {MONTHS_ES.map((name, i) => <option key={i} value={i}>{name}</option>)}
+              </select>
+              <select value={cursor.y} onChange={e => setCursor(c => ({ ...c, y: Number(e.target.value) }))} aria-label="Año">
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div className="cal-nav-btns">
+              <button onClick={() => moveMonth(-1)} className="btn btn-icon btn-secondary" title="Mes anterior"><ChevronLeft size={18} /></button>
+              <button onClick={goToday} className="btn btn-sm btn-secondary" title="Ir al mes actual">Hoy</button>
+              <button onClick={() => moveMonth(1)} className="btn btn-icon btn-secondary" title="Mes siguiente"><ChevronRight size={18} /></button>
+            </div>
           </div>
 
           <div className="cal-grid cal-weekdays">
@@ -301,17 +385,42 @@ export default function Calendar() {
           </div>
 
           <div className="card">
-            <h3 className="card-title" style={{ marginBottom: 8 }}>Próximos eventos</h3>
-            {upcoming.length === 0 ? (
-              <div className="empty-state" style={{ padding: 20 }}><div className="empty-state-icon">📅</div><p className="empty-state-text">No hay eventos próximos.</p></div>
-            ) : upcoming.map(ev => (
-              <button key={ev.id} onClick={() => { setSelectedDate(ev.date); setCursor({ y: Number(ev.date.slice(0, 4)), m: Number(ev.date.slice(5, 7)) - 1 }); }}
-                style={{ width: '100%', textAlign: 'left', border: 0, background: 'transparent', cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--surface-border)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: getCategoria(ev.category).color, flexShrink: 0 }} />
-                <span style={{ fontSize: '0.78rem', color: 'var(--gris-500)', minWidth: 64, textTransform: 'capitalize' }}>{fmtEventDate(ev.date)}</span>
-                <span style={{ fontWeight: 600, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</span>
+            <div className="seg seg-full" style={{ marginBottom: 12 }}>
+              <button type="button" className={listTab === 'upcoming' ? 'active' : ''} onClick={() => setListTab('upcoming')}>
+                <CalendarRange size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} /> Próximos
               </button>
-            ))}
+              <button type="button" className={listTab === 'history' ? 'active' : ''} onClick={() => setListTab('history')}>
+                <History size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} /> Historial
+              </button>
+            </div>
+
+            {(() => {
+              const list = listTab === 'upcoming' ? upcoming : history;
+              if (list.length === 0) {
+                return (
+                  <div className="empty-state" style={{ padding: 20 }}>
+                    <div className="empty-state-icon">{listTab === 'upcoming' ? '📅' : '🗂️'}</div>
+                    <p className="empty-state-text">{listTab === 'upcoming' ? 'No hay eventos próximos.' : 'Aún no hay eventos pasados.'}</p>
+                  </div>
+                );
+              }
+              return (
+                <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+                  {list.map(ev => {
+                    const past = listTab === 'history';
+                    return (
+                      <button key={ev.id} onClick={() => jumpTo(ev.date)}
+                        style={{ width: '100%', textAlign: 'left', border: 0, background: 'transparent', cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--surface-border)', opacity: past ? 0.85 : 1 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: getCategoria(ev.category).color, flexShrink: 0 }} />
+                        <span style={{ fontSize: '0.78rem', color: 'var(--gris-500)', minWidth: 64, textTransform: 'capitalize' }}>{fmtEventDate(ev.date)}</span>
+                        <span style={{ fontWeight: 600, fontSize: '0.9rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</span>
+                        {!past && <span className={`due-chip ${dueChipClass(daysUntil(ev.date))}`} style={{ fontSize: '0.66rem', padding: '2px 8px' }}>{relativeDayLabel(ev.date)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

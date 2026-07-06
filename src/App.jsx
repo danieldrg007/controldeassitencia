@@ -16,6 +16,7 @@ const Kiosk = lazy(() => import('./pages/Kiosk'));
 const Announcements = lazy(() => import('./pages/Announcements'));
 const Messages = lazy(() => import('./pages/Messages'));
 const Subjects = lazy(() => import('./pages/Subjects'));
+const TeacherAssign = lazy(() => import('./pages/TeacherAssign'));
 const Calendar = lazy(() => import('./pages/Calendar'));
 const Deliveries = lazy(() => import('./pages/Deliveries'));
 const Schedules = lazy(() => import('./pages/Schedules'));
@@ -38,6 +39,24 @@ const homeForRole = (role) => {
   if (role === 'kiosk') return '/kiosk';
   if (role === 'superadmin' || role === 'admin' || role === 'guard') return '/dashboard';
   return '/login';
+};
+
+// Cuenta suspendida por la administración (p. ej. adeudo): bloquea toda la app.
+const AccountSuspended = () => {
+  const { logout } = useAuth();
+  return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',padding:24}}>
+      <div className="card" style={{maxWidth:440,textAlign:'center'}}>
+        <div style={{width:64,height:64,borderRadius:'50%',background:'var(--danger-bg)',color:'var(--danger)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:28}}>⛔</div>
+        <h1 className="card-title">Acceso suspendido</h1>
+        <p style={{color:'var(--gris-500)',margin:'12px 0 20px',fontSize:'0.92rem',lineHeight:1.6}}>
+          Tu acceso a la plataforma fue suspendido temporalmente por la administración.
+          Por favor acude o comunícate con la administración del colegio para regularizar tu situación.
+        </p>
+        <button className="btn btn-primary" onClick={logout}>Cerrar sesión</button>
+      </div>
+    </div>
+  );
 };
 
 const AccountIssue = () => {
@@ -68,6 +87,7 @@ function ProtectedRoute({ children, allowedRoles }) {
     </div>
   );
   if (!user) return <Navigate to="/login" />;
+  if (userData?.accessSuspended) return <AccountSuspended />;
   if (!role) return <AccountIssue />;
   if (allowedRoles && !allowedRoles.includes(role)) {
     return <Navigate to={homeForRole(role)} replace />;
@@ -108,6 +128,9 @@ function AppRoutes() {
         } />
         <Route path="/subjects" element={
           <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><Subjects /></ProtectedRoute>
+        } />
+        <Route path="/teacher-assign" element={
+          <ProtectedRoute allowedRoles={['superadmin','admin']}><Navbar /><TeacherAssign /></ProtectedRoute>
         } />
 
         {/* Modo kiosko: sin navbar, pantalla completa. Cuenta dedicada (rol kiosk) o staff. */}
