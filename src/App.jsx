@@ -21,6 +21,7 @@ const Calendar = lazy(() => import('./pages/Calendar'));
 const Deliveries = lazy(() => import('./pages/Deliveries'));
 const Schedules = lazy(() => import('./pages/Schedules'));
 const Workshops = lazy(() => import('./pages/Workshops'));
+const PaymentSimulator = lazy(() => import('./pages/PaymentSimulator'));
 
 const FallbackLoader = () => (
   <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh'}}>
@@ -160,6 +161,10 @@ function AppRoutes() {
 
         <Route path="/parent" element={
           <ProtectedRoute allowedRoles={['superadmin','parent']}><Navbar /><ParentDashboard /></ProtectedRoute>
+        } />
+
+        <Route path="/payment-simulator" element={
+          <ProtectedRoute allowedRoles={['superadmin','admin','parent']}><PaymentSimulator /></ProtectedRoute>
         } />
 
         <Route path="*" element={<Navigate to={user ? getHome() : '/login'} />} />

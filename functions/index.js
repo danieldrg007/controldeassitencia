@@ -370,16 +370,10 @@ export const createWorkshopPreference = onCall(async (request) => {
     const token = process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-TOKEN-PENDIENTE';
     const baseUrl = 'https://mi-app-oliverio.web.app';
 
-    // MODO SIMULADOR: Si aún no tenemos el token real, simulamos el pago exitoso inmediatamente
+    // MODO SIMULADOR: Si aún no tenemos el token real, redirigir al simulador visual
     if (token === 'TEST-TOKEN-PENDIENTE' || token === 'SIMULACION') {
-      await db.doc(`workshopEnrollments/${enrollmentId}`).update({
-        paymentStatus: 'paid',
-        paymentMethod: 'mercadopago (simulado)',
-        paidAt: new Date().toISOString(),
-        paidRegisteredBy: 'Simulador MP'
-      });
-      // Redirigir de vuelta a talleres
-      return { init_point: `${baseUrl}/workshops` };
+      const simUrl = `${baseUrl}/payment-simulator?eid=${enrollmentId}&name=${encodeURIComponent(enr.workshopName || '')}&student=${encodeURIComponent(enr.studentName || '')}&amount=${enr.cost || 0}`;
+      return { init_point: simUrl };
     }
 
     const client = new MercadoPagoConfig({ accessToken: token });
