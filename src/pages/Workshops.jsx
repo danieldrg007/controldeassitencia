@@ -6,7 +6,7 @@ import { Palette, Plus, X, Trash2, Pencil, Users as UsersIcon, CreditCard, Check
 import { NOMBRE_PLANTELES } from '../config/colegio';
 import { PAYMENT_STATUS, PAYMENTS_ENABLED, startOnlinePayment, fmtMoney } from '../utils/payments';
 
-const emptyWorkshop = { name: '', description: '', cost: '', capacity: '', schedule: '', plantel: '' };
+const emptyWorkshop = { name: '', description: '', cost: '', capacity: '', schedule: '', schedules: [], plantel: '' };
 
 // Talleres extraescolares con control de inscripción y pago.
 // Admin: catálogo + inscripciones + marcar pagado. Padre: inscribe a sus hijos.
@@ -70,7 +70,15 @@ export default function Workshops() {
   const openCreate = () => { setEditing(null); setForm(emptyWorkshop); setShowForm(true); };
   const openEdit = (w) => {
     setEditing(w);
-    setForm({ name: w.name || '', description: w.description || '', cost: String(w.cost ?? ''), capacity: String(w.capacity ?? ''), schedule: w.schedule || '', plantel: w.plantel || '' });
+    setForm({ 
+      name: w.name || '', 
+      description: w.description || '', 
+      cost: String(w.cost ?? ''), 
+      capacity: String(w.capacity ?? ''), 
+      schedule: w.schedule || '', 
+      schedules: w.schedules || [], 
+      plantel: w.plantel || '' 
+    });
     setShowForm(true);
   };
 
@@ -78,12 +86,17 @@ export default function Workshops() {
     e.preventDefault();
     setSaving(true);
     try {
+      const formattedSchedule = form.schedules && form.schedules.length > 0 
+        ? form.schedules.map(s => `${s.day} ${s.start} - ${s.end}`).join(', ')
+        : form.schedule.trim();
+
       const payload = {
         name: form.name.trim(),
         description: form.description.trim(),
         cost: Number(form.cost) || 0,
         capacity: Number(form.capacity) || 0,
-        schedule: form.schedule.trim(),
+        schedule: formattedSchedule,
+        schedules: form.schedules || [],
         plantel: form.plantel, // '' = todos los planteles
       };
       if (editing) {
@@ -309,11 +322,40 @@ export default function Workshops() {
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--brand)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>3. Horario</div>
                 <div className="form-group">
                   <label className="form-label">Días y horas</label>
-                  <input className="form-input" value={form.schedule} onChange={e => setForm({ ...form, schedule: e.target.value })} required placeholder="Ej. Lunes y miércoles de 14:30 a 16:00" />
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                    {['Lunes y miércoles 14:30 - 16:00', 'Martes y jueves 14:30 - 16:00', 'Viernes 14:00 - 16:00'].map(s => (
-                      <button key={s} type="button" onClick={() => setForm({ ...form, schedule: s })} className="btn btn-sm btn-secondary" style={{ fontSize: '0.75rem', padding: '4px 8px' }}>+ {s}</button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {(form.schedules || []).map((s, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <select className="form-input" value={s.day} onChange={e => {
+                          const ns = [...(form.schedules || [])]; ns[i].day = e.target.value; setForm({...form, schedules: ns});
+                        }} style={{ flex: 2 }}>
+                          <option value="Lunes">Lunes</option>
+                          <option value="Martes">Martes</option>
+                          <option value="Miércoles">Miércoles</option>
+                          <option value="Jueves">Jueves</option>
+                          <option value="Viernes">Viernes</option>
+                          <option value="Sábado">Sábado</option>
+                          <option value="Domingo">Domingo</option>
+                        </select>
+                        <input type="time" className="form-input" value={s.start} onChange={e => {
+                          const ns = [...(form.schedules || [])]; ns[i].start = e.target.value; setForm({...form, schedules: ns});
+                        }} style={{ flex: 1 }} required />
+                        <span style={{color: 'var(--gris-500)', fontSize: '0.85rem'}}>a</span>
+                        <input type="time" className="form-input" value={s.end} onChange={e => {
+                          const ns = [...(form.schedules || [])]; ns[i].end = e.target.value; setForm({...form, schedules: ns});
+                        }} style={{ flex: 1 }} required />
+                        <button type="button" className="btn btn-sm btn-danger" onClick={() => {
+                          const ns = form.schedules.filter((_, idx) => idx !== i); setForm({...form, schedules: ns});
+                        }}><Trash2 size={14} /></button>
+                      </div>
                     ))}
+                    <button type="button" className="btn btn-sm btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => {
+                      setForm({...form, schedules: [...(form.schedules || []), { day: 'Lunes', start: '14:00', end: '16:00' }]});
+                    }}>
+                      <Plus size={14} style={{ marginRight: 4 }} /> Agregar horario
+                    </button>
+                    {(!form.schedules || form.schedules.length === 0) && (
+                       <input className="form-input" style={{ marginTop: 8 }} value={form.schedule} onChange={e => setForm({ ...form, schedule: e.target.value })} placeholder="Ej. Lunes y miércoles de 14:30 a 16:00 (o usa el botón de arriba)" />
+                    )}
                   </div>
                 </div>
               </div>
