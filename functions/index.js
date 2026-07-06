@@ -1,9 +1,10 @@
+/* global process */
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
-import { onRequest } from 'firebase-functions/v2/https';
+import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-
+import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 initializeApp();
 const db = getFirestore();
 
@@ -345,3 +346,107 @@ export const calendarFeed = onRequest(async (req, res) => {
   }
 });
 
+// 6) Endpoint para crear preferencia de pago de Mercado Pago
+export const createWorkshopPreference = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+  }
+
+  const { enrollmentId } = request.data;
+  if (!enrollmentId) {
+    throw new HttpsError('invalid-argument', 'Falta el enrollmentId.');
+  }
+
+  try {
+    const snap = await db.doc(`workshopEnrollments/${enrollmentId}`).get();
+    if (!snap.exists) {
+      throw new HttpsError('not-found', 'Inscripción no encontrada.');
+    }
+    const enr = snap.data();
+    if (enr.paymentStatus === 'paid') {
+      throw new HttpsError('failed-precondition', 'Esta inscripción ya está pagada.');
+    }
+
+    const token = process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-TOKEN-PENDIENTE';
+    const baseUrl = 'https://mi-app-oliverio.web.app';
+
+    // MODO SIMULADOR: Si aún no tenemos el token real, simulamos el pago exitoso inmediatamente
+    if (token === 'TEST-TOKEN-PENDIENTE' || token === 'SIMULACION') {
+      await db.doc(`workshopEnrollments/${enrollmentId}`).update({
+        paymentStatus: 'paid',
+        paymentMethod: 'mercadopago (simulado)',
+        paidAt: new Date().toISOString(),
+        paidRegisteredBy: 'Simulador MP'
+      });
+      // Redirigir de vuelta a talleres
+      return { init_point: `${baseUrl}/workshops` };
+    }
+
+    const client = new MercadoPagoConfig({ accessToken: token });
+    const preference = new Preference(client);
+
+    const body = {
+      items: [
+        {
+          id: enr.workshopId,
+          title: `Taller: ${enr.workshopName} (${enr.studentName})`,
+          quantity: 1,
+          unit_price: Number(enr.cost) || 0,
+          currency_id: 'MXN'
+        }
+      ],
+      back_urls: {
+        success: `${baseUrl}/workshops`,
+        failure: `${baseUrl}/workshops`,
+        pending: `${baseUrl}/workshops`
+      },
+      auto_return: 'approved',
+      external_reference: enrollmentId
+      // notification_url se puede configurar en el dashboard de MP o definir mediante: process.env.MP_WEBHOOK_URL
+    };
+    if (process.env.MP_WEBHOOK_URL) {
+      body.notification_url = process.env.MP_WEBHOOK_URL;
+    }
+
+    const response = await preference.create({ body });
+    return { init_point: response.init_point };
+
+  } catch (error) {
+    console.error('Error creating MP preference:', error);
+    throw new HttpsError('internal', 'Error al crear el pago.');
+  }
+});
+
+// 7) Webhook de Mercado Pago para procesar notificaciones
+export const mercadoPagoWebhook = onRequest(async (req, res) => {
+  try {
+    const topic = req.query.topic || req.body?.type;
+    const id = req.query['data.id'] || req.body?.data?.id;
+
+    if ((topic === 'payment' || topic === 'payment.created' || topic === 'payment.updated') && id) {
+      const token = process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-TOKEN-PENDIENTE';
+      const client = new MercadoPagoConfig({ accessToken: token });
+      const paymentClient = new Payment(client);
+
+      const p = await paymentClient.get({ id });
+      
+      if (p.status === 'approved' && p.external_reference) {
+        const enrollmentId = p.external_reference;
+        
+        await db.doc(`workshopEnrollments/${enrollmentId}`).update({
+          paymentStatus: 'paid',
+          paymentMethod: 'mercadopago',
+          paidAt: new Date().toISOString(),
+          paymentId: String(id),
+          paidRegisteredBy: 'Mercado Pago Webhook'
+        });
+      }
+    }
+    
+    // MP requiere un HTTP 200 OK rápido
+    res.status(200).send('OK');
+  } catch (err) {
+    console.error('Error in MP webhook:', err);
+    res.status(500).send('Error interno.');
+  }
+});

@@ -124,7 +124,7 @@ export default function Workshops() {
     if (w.capacity > 0 && list.length >= w.capacity) { alert('Este taller ya está lleno.'); return; }
     setSaving(true);
     try {
-      await addDoc(collection(db, 'workshopEnrollments'), {
+      const docRef = await addDoc(collection(db, 'workshopEnrollments'), {
         workshopId: w.id,
         workshopName: w.name,
         studentId: child.id,
@@ -136,7 +136,17 @@ export default function Workshops() {
         paymentMethod: null,
         enrolledAt: new Date().toISOString(),
       });
-      setEnrollTarget(null);
+      
+      if (PAYMENTS_ENABLED && w.cost > 0) {
+        try {
+          await startOnlinePayment({ id: docRef.id });
+        } catch(e) {
+          alert('Inscrito con éxito, pero falló la redirección automática al pago: ' + e.message);
+          setEnrollTarget(null);
+        }
+      } else {
+        setEnrollTarget(null);
+      }
     } catch (err) { alert('Error al inscribir: ' + err.message); }
     setSaving(false);
   };

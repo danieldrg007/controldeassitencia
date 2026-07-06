@@ -30,14 +30,27 @@ export const PAYMENT_STATUS = {
 export const fmtMoney = (n) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
 
-// Punto de entrada del pago en línea. Cuando exista la Cloud Function de
-// Mercado Pago, aquí se pide la preference y se redirige a init_point.
-export async function startOnlinePayment(/* enrollment */) {
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../firebase';
+
+// Punto de entrada del pago en línea. Invoca la Cloud Function para
+// obtener el init_point de Mercado Pago y redirige al usuario.
+export async function startOnlinePayment(enrollment) {
   if (!PAYMENTS_ENABLED) {
     throw new Error('El pago en línea estará disponible próximamente. Por ahora paga en caja o por transferencia.');
   }
-  // const res = await fetch('/api/createWorkshopPreference', { method: 'POST', body: ... });
-  // const { init_point } = await res.json();
-  // window.location.href = init_point;
-  throw new Error('Integración de Mercado Pago pendiente de configurar.');
+
+  try {
+    const createPreference = httpsCallable(functions, 'createWorkshopPreference');
+    const { data } = await createPreference({ enrollmentId: enrollment.id });
+    
+    if (data && data.init_point) {
+      window.location.href = data.init_point;
+    } else {
+      throw new Error('No se recibió la url de cobro desde el servidor.');
+    }
+  } catch (err) {
+    console.error('Error in startOnlinePayment:', err);
+    throw new Error(err.message || 'Error al iniciar el pago en línea.', { cause: err });
+  }
 }
