@@ -27,6 +27,13 @@ service firebase.storage {
       allow delete: if request.auth != null;
     }
 
+    // Adjuntos y portadas de talleres.
+    match /workshops/{workshopId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.resource.size < 20 * 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
+
     // Todo lo demás queda bloqueado por defecto.
     match /{allPaths=**} {
       allow read, write: if false;
